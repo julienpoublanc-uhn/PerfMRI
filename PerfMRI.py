@@ -52,18 +52,21 @@ from functools import partial
 from nipy.algorithms.registration.groupwise_registration import SpaceRealign, SpaceTimeRealign
 from nipy import load_image, save_image
 
+from nilearn.image import resample_to_img
+from sklearn.cluster import KMeans
+
 # Show/hide overlay ==================================================================================
 # ====================================================================================================
 
 def view_overlay():
-    if chk_map_state.get():
-        for ove in [ove4, ove5, ove6, ove1, ove1b]:
-            ove.set_visible(True)
-        canvas_fig.draw()
-    else:
-        for ove in [ove4, ove5, ove6, ove1, ove1b]:
-            ove.set_visible(False)
-        canvas_fig.draw()
+    overlay_names = ['ove4', 'ove5', 'ove6', 'ove1', 'ove1b']
+    visible = chk_map_state.get()
+    
+    for name in overlay_names:
+        if name in globals():
+            globals()[name].set_visible(visible)
+    
+    canvas_fig.draw()
 
 def view_func():
     if chk_func_state.get():
@@ -181,7 +184,6 @@ def calculate_fov(nifti_image):
     # Return FOV as [xmin, xmax, ymin, ymax]
     return [xmin, xmax, ymin, ymax]
 
-
 def oblique_image_like(master_im, target_im):
     # Get target image's voxel size
     target_voxel_size = target_im.header.get_zooms()[:3]
@@ -212,6 +214,7 @@ def oblique_image_like(master_im, target_im):
 
     return resampled_target
 
+
 def deoblique_affine(nii_img):
     # Get current affine and voxel size
     affine = nii_img.affine.copy()
@@ -225,7 +228,6 @@ def deoblique_affine(nii_img):
     new_affine[:3, 3] = affine[:3, 3]  # keep translation
 
     return nb.Nifti1Image(nii_img.get_fdata(), new_affine, header=nii_img.header)
-
 
 def load_orient_nifti_afni(fullfile):
     # Check file extension and load the appropriate file format
@@ -316,6 +318,7 @@ def load_raw():
     nb_func_orig = load_orient_nifti_afni(funcfullfile)
     aff_func_orig = nb_func_orig.affine
     func_orig = nb_func_orig.get_fdata().transpose(1,0,2,3)
+    save2nifti(func_orig,aff_func_orig,1,dir_preprocess,'func_untouched.nii.gz')
     form_code_func_orig = nb_func_orig.header['sform_code']
 
     nb_func = deoblique_affine(nb_func_orig)
@@ -325,12 +328,12 @@ def load_raw():
     aff_func = nb_func.affine
     fov_func = calculate_fov(nb_func)
     # Make a copy of the original dataset in dir_preprocess
-    print("YYYYYYYYYYYYYYYYYYYYYYY",nb_func_orig.header['sform_code'],nb_func_orig.header['qform_code'])
-    save2nifti(func_orig,aff_func_orig,form_code_func_orig,dir_preprocess,'func_00_ori.nii.gz')
-    save2nifti(func_orig,aff_func_orig,0,dir_preprocess,'func_00_ori_code0.nii.gz')
-    save2nifti(func_orig,aff_func_orig,1,dir_preprocess,'func_00_ori_code1.nii.gz')
-    save2nifti(func_orig,aff_func_orig,2,dir_preprocess,'func_00_ori_code2.nii.gz')
-    save2nifti(func_orig,aff_func_orig,3,dir_preprocess,'func_00_ori_code3.nii.gz')
+    # print("YYYYYYYYYYYYYYYYYYYYYYY",nb_func_orig.header['sform_code'],nb_func_orig.header['qform_code'])
+    # save2nifti(func_orig,aff_func_orig,form_code_func_orig,dir_preprocess,'func_00_ori.nii.gz')
+    # save2nifti(func_orig,aff_func_orig,0,dir_preprocess,'func_00_ori_code0.nii.gz')
+    save2nifti(func_orig,aff_func_orig,1,'.','func_00_ori_code1.nii.gz')
+    # save2nifti(func_orig,aff_func_orig,2,dir_preprocess,'func_00_ori_code2.nii.gz')
+    # save2nifti(func_orig,aff_func_orig,3,dir_preprocess,'func_00_ori_code3.nii.gz')
 
     # Make the mean
     func_mean = np.ma.mean(func,axis=3)
@@ -347,7 +350,7 @@ def load_raw():
         nb_anat_reg = oblique_image_like(nb_func_orig,nb_anat_noreg)
         nb_anat = deoblique_affine(nb_anat_reg)
         anat = nb_anat.get_fdata().transpose(1,0,2)
-        save2nifti(anat,nb_anat.affine,1, dir_preprocess, 'anat2func.nii.gz')
+        save2nifti(anat,nb_anat.affine,1, '.', 'anat2func.nii.gz')
         
     else:
         # Use the mean functional as the underlay
@@ -2271,14 +2274,22 @@ def on_mouse_move(event):
 
             for cross in ([cross1, cross2, cross3, cross4]):
                 update_cross(cross, event.xdata, event.ydata)
-            
-            if 'data4' in globals():
-                text_coord.set_text(f'I{J} J{I} K{K}')
+
+            text_coord.set_text(f'I{J} J{I} K{K}')
+
+            if 'mapval4' in globals() and 'data4' in globals():
                 mapval4.set_text(f'{data4[I,J,K]:.2f}')
+            if 'mapval5' in globals() and 'data5' in globals():
                 mapval5.set_text(f'{data5[I,J,K]:.2f}')
+            if 'mapval6' in globals() and 'data6' in globals():
                 mapval6.set_text(f'{data6[I,J,K]:.2f}')
-            else:
-                text_coord.set_text(f'I{J} J{I} K{K}')
+            # if 'data4' in globals():
+            #     text_coord.set_text(f'I{J} J{I} K{K}')
+            #     mapval4.set_text(f'{data4[I,J,K]:.2f}')
+            #     mapval5.set_text(f'{data5[I,J,K]:.2f}')
+            #     mapval6.set_text(f'{data6[I,J,K]:.2f}')
+            # else:
+            #     text_coord.set_text(f'I{J} J{I} K{K}')
             plt.draw()
 
 # Keep time series when clicking on image ============================================================
@@ -2758,10 +2769,61 @@ nb_analysis.add(frame_perf, text='Perfusion Analysis')
 frame_cvr = Frame(nb_analysis,pady=20)
 nb_analysis.add(frame_cvr, text='CVR Analysis')
 
+
+
 frame_chkbt = Frame(frame_ui)
 frame_chkbt.pack(side=TOP,anchor="w",padx=10, pady=10)
 
+# Make a frame for Segmentation
+frame_seg = Frame(nb_analysis,pady=20)
+nb_analysis.add(frame_seg, text='Segmentation')
 
+
+
+def seg_func():
+    global data4,ove4,und4,mapval4
+    save2nifti(func_mask,aff_func,1,'.','func_mask.nii.gz')
+    nb_func_mask = nb.Nifti1Image(func_mask.transpose(1,0,2),aff_func)
+    nb_func_mask_rsp = resample_to_img(source_img=nb_func_mask, target_img=nb_anat, interpolation='nearest')
+    func_mask_rsp = nb_func_mask_rsp.get_fdata().transpose(1,0,2)  
+    save2nifti(func_mask_rsp,aff_func,1,'.','func_mask_rsp.nii.gz')
+    # Flatten and extract only brain voxels
+    anat_mask = func_mask_rsp > 0
+    print(type(anat_mask),type(func_mask))
+    brain_data = anat[anat_mask].reshape(-1, 1)
+
+    # Run KMeans clustering
+    kmeans = KMeans(n_clusters=3, random_state=0, n_init='auto')
+    labels_flat = kmeans.fit_predict(brain_data)
+
+    # Assign clustered labels back into full image shape
+    labels = np.zeros_like(anat, dtype=np.uint8)
+    labels[anat_mask] = labels_flat + 1  # shift to avoid 0 as brain class
+
+    # Optionally sort labels based on intensity to assign CSF/GM/WM
+    means = [anat[labels == i].mean() for i in [1, 2, 3]]
+    sorted_idx = np.argsort(means)
+    final_labels = np.zeros_like(labels)
+    for new_val, old_val in enumerate(sorted_idx, start=1):
+        final_labels[labels == (old_val + 1)] = new_val
+    final_labels_rsp = resample_to_img(source_img=nb.Nifti1Image(final_labels.transpose(1,0,2),nb_anat.affine), target_img=nb_func_mask, interpolation='nearest')
+    
+    
+    SEG = final_labels_rsp.get_fdata().transpose(1,0,2)
+    data4,ove4,und4,mapval4 = show_map(ax4,SEG,"GM/WM/CSF",fMRI_colors,0,0,anat)
+    plt.draw()
+
+def seg_calc():
+    print("will average seg")
+
+lb_seg = Label(frame_seg, text="Segmentation (GM/WM/CSF)")
+lb_seg.grid(column=0, row=2,sticky=W,padx=(10,40))
+
+bt_func = Button(frame_seg, text="seg",justify='center',command=seg_func,width=1)
+bt_func.grid(column=1, row=2,sticky=W,padx=(0,0))
+
+bt_anat = Button(frame_seg, text="calc",justify='center',command=seg_calc,width=1)
+bt_anat.grid(column=1, row=2,sticky=W,padx=(50,0))
 # ==================================================================================================================
 # ==================================================================================================================
 # ==================================================================================================================
