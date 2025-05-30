@@ -21,7 +21,7 @@ from matplotlib.widgets import Slider, RangeSlider
 from matplotlib.widgets import Button as Button_mpl
 from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg,NavigationToolbar2Tk)
 from matplotlib.backend_bases import MouseButton
-from matplotlib.colors import LinearSegmentedColormap,ListedColormap, Normalize, BoundaryNorm
+from matplotlib.colors import (LinearSegmentedColormap,ListedColormap, Normalize, BoundaryNorm)
 from matplotlib.lines import Line2D
 from matplotlib.transforms import blended_transform_factory
 from matplotlib.gridspec import GridSpec
@@ -54,6 +54,7 @@ from nipy import load_image, save_image
 
 from nilearn.image import resample_to_img
 from sklearn.cluster import KMeans
+import ants
 
 # Show/hide overlay ==================================================================================
 # ====================================================================================================
@@ -183,6 +184,10 @@ def calculate_fov(nifti_image):
     
     # Return FOV as [xmin, xmax, ymin, ymax]
     return [xmin, xmax, ymin, ymax]
+ 
+def is_oblique(affine):
+    return np.any(affine[:3, :3] != np.diag(np.diag(affine[:3, :3])))
+        
 
 def oblique_image_like(master_im, target_im):
     # Get target image's voxel size
@@ -260,6 +265,7 @@ def load_orient_nifti_afni(fullfile):
 def press_load_raw():
     load_raw()
 
+#@profile
 def load_raw():
     global anat,func,func_orig, func_sc, func_mean, aif, data1, brain_ave
     global aff_func_orig, form_code_func_orig
@@ -314,11 +320,9 @@ def load_raw():
     
     
     # Loading datasets
-    
     nb_func_orig = load_orient_nifti_afni(funcfullfile)
     aff_func_orig = nb_func_orig.affine
     func_orig = nb_func_orig.get_fdata().transpose(1,0,2,3)
-    save2nifti(func_orig,aff_func_orig,1,dir_preprocess,'func_untouched.nii.gz')
     form_code_func_orig = nb_func_orig.header['sform_code']
 
     nb_func = deoblique_affine(nb_func_orig)
@@ -327,13 +331,7 @@ def load_raw():
     # Extract affine and FOV from the deobliqued header
     aff_func = nb_func.affine
     fov_func = calculate_fov(nb_func)
-    # Make a copy of the original dataset in dir_preprocess
-    # print("YYYYYYYYYYYYYYYYYYYYYYY",nb_func_orig.header['sform_code'],nb_func_orig.header['qform_code'])
-    # save2nifti(func_orig,aff_func_orig,form_code_func_orig,dir_preprocess,'func_00_ori.nii.gz')
-    # save2nifti(func_orig,aff_func_orig,0,dir_preprocess,'func_00_ori_code0.nii.gz')
-    save2nifti(func_orig,aff_func_orig,1,'.','func_00_ori_code1.nii.gz')
-    # save2nifti(func_orig,aff_func_orig,2,dir_preprocess,'func_00_ori_code2.nii.gz')
-    # save2nifti(func_orig,aff_func_orig,3,dir_preprocess,'func_00_ori_code3.nii.gz')
+    
 
     # Make the mean
     func_mean = np.ma.mean(func,axis=3)
@@ -347,10 +345,16 @@ def load_raw():
     # If user does not have an anatomical, use the mean func as anatomical
     if 'anatfullfile' in globals():
         nb_anat_noreg = load_orient_nifti_afni(anatfullfile)
-        nb_anat_reg = oblique_image_like(nb_func_orig,nb_anat_noreg)
-        nb_anat = deoblique_affine(nb_anat_reg)
-        anat = nb_anat.get_fdata().transpose(1,0,2)
-        save2nifti(anat,nb_anat.affine,1, '.', 'anat2func.nii.gz')
+
+        if is_oblique(aff_func_orig) or is_oblique(nb_anat_noreg.affine):
+            nb_anat_reg = oblique_image_like(nb_func_orig,nb_anat_noreg)
+            nb_anat = deoblique_affine(nb_anat_reg)
+            anat = nb_anat.get_fdata().transpose(1,0,2)
+            save2nifti(anat,nb_anat.affine,2,dir_preprocess, 'anat2func.nii.gz')
+        else:
+            nb_anat = nb_anat_noreg
+            anat = nb_anat.get_fdata().transpose(1,0,2)
+        
         
     else:
         # Use the mean functional as the underlay
@@ -433,6 +437,10 @@ def load_raw():
     data1 = func
     plt.draw()
 
+
+    
+
+
 def mask_brain():
     global func_mask, data1, pr
     pr += 1
@@ -448,8 +456,14 @@ def mask_brain():
         func_mask_4d = np.repeat(func_mask[..., np.newaxis], func.shape[3], axis=3)
         data1 = np.ma.masked_where(func_mask_4d == 0, func)
     resetplot(ax3,data1,TR)
-    save2nifti(data1,aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_mas.nii.gz')
 
+    # Saving the masked func data
+    save2nifti(data1,aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_msd.nii.gz')
+
+    # Saving the 3D mask
+    pr += 1
+    save2nifti(func_mask,aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_msk.nii.gz')
+    
 def set_vlines():
 
     # Set lines to trim signal.  If dataset is less than 120s, it is likely a DSC file
@@ -472,7 +486,7 @@ def trim_signal():
     i1 = np.max(i1,0)
     
     i2 = round(vline2.get_xdata()[0]/TR)
-    i2 = np.min([i2,data1.shape[-1]-1])
+    i2 = np.min([i2,data1.shape[-1]])
     data1 = data1[...,i1:i2]
     
     
@@ -481,13 +495,9 @@ def trim_signal():
 
     # Now place again the vlines
     vline1.set_xdata([0,0])
-    m = -1*(np.log(data1 / data1[...,[2]]))
-    m = np.ma.mean(m, axis=(0, 1, 2))
-    end_base, _ = find_bolus_lines(m,TR) 
-    vline2.set_xdata([TR*end_base,TR*end_base])
-
+    vline2.set_xdata([t[-1]+TR,t[-1]+TR])
+    plt.draw()
     save2nifti(data1,aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_tri.nii.gz')
-
 
 def on_slicetime_change(*args):
     global slicetime_acq_file
@@ -652,7 +662,6 @@ def scale_signal():
     
     i2 = round(vline2.get_xdata()[0]/TR)
     i2 = np.max([i2,0])
-    
     if tkvar_imtype.get()=="Concentration":
         data1_base = np.ma.mean(data1[...,i1:i2+1],axis=3)
         data1_sc_base = data1 / data1_base[..., np.newaxis]
@@ -671,9 +680,12 @@ def scale_signal():
         data1 = 100*(data1_sc_mean - 1)
         ax3_ylabel = "BOLD(%)"
     
-
     # Plot the time series and average brain
     resetplot(ax3,data1,TR)
+
+    # Place again the vlines in a sensible place
+    vline1.set_xdata([0,0])
+    vline2.set_xdata([t[1],t[1]])
     ax3.text(0.05, 0.95,ax3_ylabel, color='white',transform=ax3.transAxes, fontsize=12,verticalalignment='top', horizontalalignment='left')
     save2nifti(data1, aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_scl.nii.gz')
 
@@ -1272,40 +1284,6 @@ def calc_aif():
 
 
 
-def calc_aif_cvr_old():
-    
-    Nvox=txt2_nvox.get("1.0",END)
-    Nvox=np.int64(Nvox.strip())
-
-    _,bold,_ = load_nifti(dir_cvr,'bold.nii.gz')
-    _,corr,_ = load_nifti(dir_cvr,'correlation.nii.gz')
-    _,lag,_ = load_nifti(dir_cvr,'lag.nii.gz')
-    
-    
-    if type_aif.get() == "Neg":
-        bold = -bold
-        corr = -corr
-
-    corr = np.ma.masked_where((func_mask == 0) | (lag >= 2), corr)
-    
-    N = np.ma.count(corr)
-    N_metrics = 2
-    perc = 100 * (Nvox / N) ** (1/N_metrics)
-
-    bold_masked  = mask_by_percentile(corr,bold,100-perc,"low")
-    aif[:] = mask_by_percentile(bold_masked, np.ones_like(func_mask),100-perc,"low")[:]
-
-    _,_,k_func = ijk_anat2func([0,0,slice_n.val])
-    ove1b.set_data(aif[:, :, k_func])
-
-    # Here I remove all the lines except for the time-line, the dotted current line and the average brain line.  I remove the average AIF, since it is re-calculated here.  Since I remove the average AIF, I need to add the line : ax3.add_line(line_aif_ave)
-    resetplot(ax3,data1,TR)
-    #average AIF line was removed from the plot, so I add it again.
-    line_aif_ave.set_visible(chk_ave_aif_state.get())
-    # Save AIF to file
-    save_aif()
-    plt.draw()
-
 
 def calc_aif_cvr():
     
@@ -1522,6 +1500,7 @@ def calc_quantperf_bSVD():
     cbf = np.max(R,axis=3) * 100 * 60 * 0.7 # /g/s => /100g/min
     save2nifti(cbf,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'cbf.nii.gz')
     mtt = TR*np.sum(R,axis=3)/np.max(R,axis=3)
+    mtt = np.ma.masked_where(mtt<=0,mtt)
     save2nifti(mtt,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'mtt.nii.gz')
     cbv = 100*0.7*auc/auc_max # CBV is in % or mL/100g if 100g ~ 100mL of tissue  - kh = 0.7 - hematocrit concetration difference between tissue and vascular voxels
     # For example a grey matter voxel of 5% means 5mL of blood for 100mL of tissue 5mL/100mL - > 5mL/100g
@@ -2357,7 +2336,11 @@ def on_click_im_right(event):
                 plt.draw()
             else:
                 _, newfile_array,label4 = load_nifti_filedialog()
-                data4,ove4,und4,mapval4 = show_map(event.inaxes,newfile_array,label4,ove4.get_cmap(),5,5,anat)
+                if 'ove4' in globals():
+                    colorscale = ove4.get_cmap()
+                else:
+                    colorscale = 'hot'
+                data4,ove4,und4,mapval4 = show_map(event.inaxes,newfile_array,label4,colorscale,5,5,anat)
     
         elif event.inaxes == ax5:
             rel_x, rel_y = event.inaxes.transAxes.inverted().transform((event.x, event.y))
@@ -2378,7 +2361,13 @@ def on_click_im_right(event):
                 plt.draw()    
             else:
                 _, newfile_array,label5 = load_nifti_filedialog()
-                data5,ove5,und5,mapval5 = show_map(event.inaxes,newfile_array,label5,ove5.get_cmap(),5,5,anat)
+                if 'ove5' in globals():
+                    colorscale = ove5.get_cmap()
+                else:
+                    colorscale = 'hot'
+                data5,ove5,und5,mapval5 = show_map(event.inaxes,newfile_array,label5,colorscale,5,5,anat)
+
+
         elif event.inaxes == ax6:
             rel_x, rel_y = event.inaxes.transAxes.inverted().transform((event.x, event.y))
             if 0.97 <= rel_x <= 1 and 0.15 <= rel_y <= 0.85:
@@ -2398,46 +2387,22 @@ def on_click_im_right(event):
                 plt.draw()
             else:
                 _, newfile_array,label6 = load_nifti_filedialog()
-                data6,ove6,und6,mapval6 = show_map(event.inaxes,newfile_array,label6,ove6.get_cmap(),5,5,anat)
-        elif event.inaxes == ax3:
-            rel_x, rel_y = event.inaxes.transAxes.inverted().transform((event.x, event.y))
-            # if  0 <= rel_x <= 0.15 and 0.75 <= rel_y <= 1:
-            #     ymin, _ = ax3.get_ylim()  # Get the current ymin
-            #     ymax = simpledialog.askfloat("Input", "Enter new maximum Y:", parent=window)
-            #     ax3.set_ylim(ymin, ymax) 
-            #     plt.draw()
-            # if 0 <= rel_x <= 0.15 and 0.16 <= rel_y <= 0.3:
-            #     _, ymax = ax3.get_ylim()  # Get the current ymax
-            #     ymin = simpledialog.askfloat("Input", "Enter new minimum Y:", parent=window)
-            #     ax3.set_ylim(ymin, ymax) 
-            #     plt.draw()
+                if 'ove6' in globals():
+                    colorscale = ove6.get_cmap()
+                else:
+                    colorscale = 'hot'
+                data6,ove6,und6,mapval6 = show_map(event.inaxes,newfile_array,label6,colorscale,5,5,anat)
 
-            if 0.75 <= rel_x <= 1 and 0 <= rel_y <= 0.25:
-                xmin, _ = ax3.get_xlim()  # Get the current ymax
-                xmax = simpledialog.askfloat("Input", "Enter new maximum X:", parent=window)
-                ax3.set_xlim(xmin, xmax) 
-                plt.draw()
-
-            if 0.1 <= rel_x <= 0.25 and 0 <= rel_y <= 0.15:
-                _, xmax = ax3.get_xlim()  # Get the current ymax
-                xmin = simpledialog.askfloat("Input", "Enter new minimum X:", parent=window)
-                ax3.set_xlim(xmin, xmax) 
-                plt.draw()
-            
     plt.draw()
 
 
 
 def update_ylim(val):
-    # Turn off autoscale
-    chk_autoscale_state.set(False)
     # When dragging, update the y-limits of the plot
     ax3.set_ylim(val)  # Update y-limits with the current slider values
     fig.canvas.draw_idle()  # Redraw the plot
 
 def update_xlim(val):
-    # Turn off autoscale
-    chk_autoscale_state.set(False)
     # When dragging, update the x-limits of the plot
     ax3.set_xlim(val)  # Update x-limits with the current slider values
     fig.canvas.draw_idle()  # Redraw the plot
@@ -2461,10 +2426,6 @@ def reset_slider_limits(event):
         xlim_slider.ax.set_xlim(xmin-dx,xmax+dx)  # Update the slider axis limits
         xlim_slider.set_val([xmin, xmax])  # Update the cursor position
         fig.canvas.draw_idle()  # Redraw the figure
-
-
-
-
 
 def apply_cbar_format(cbar):
     cbar.ax.yaxis.set_tick_params(color='white')
@@ -2780,16 +2741,16 @@ nb_analysis.add(frame_seg, text='Segmentation')
 
 
 
-def seg_func():
-    global data4,ove4,und4,mapval4
-    save2nifti(func_mask,aff_func,1,'.','func_mask.nii.gz')
+def seg_calc():
+    global data4,ove4,und4,mapval4,pr,seg
+    global data5,ove5,und5,mapval5
+
     nb_func_mask = nb.Nifti1Image(func_mask.transpose(1,0,2),aff_func)
     nb_func_mask_rsp = resample_to_img(source_img=nb_func_mask, target_img=nb_anat, interpolation='nearest')
     func_mask_rsp = nb_func_mask_rsp.get_fdata().transpose(1,0,2)  
-    save2nifti(func_mask_rsp,aff_func,1,'.','func_mask_rsp.nii.gz')
+    
     # Flatten and extract only brain voxels
     anat_mask = func_mask_rsp > 0
-    print(type(anat_mask),type(func_mask))
     brain_data = anat[anat_mask].reshape(-1, 1)
 
     # Run KMeans clustering
@@ -2807,23 +2768,140 @@ def seg_func():
     for new_val, old_val in enumerate(sorted_idx, start=1):
         final_labels[labels == (old_val + 1)] = new_val
     final_labels_rsp = resample_to_img(source_img=nb.Nifti1Image(final_labels.transpose(1,0,2),nb_anat.affine), target_img=nb_func_mask, interpolation='nearest')
+    seg = final_labels_rsp.get_fdata().transpose(1,0,2)
+
+    # Import T1 MNI
+    t1_mni = os.path.join(script_directory,'data','T1.nii.gz')
+    ants_t1_mni = ants.image_read(t1_mni,reorient='RAI')
+    
+    # Import the left and right 
+    ants_hem_mni = ants.image_read(os.path.join(script_directory,'data','hemispheres.nii.gz'),reorient='RAI')
+
+    # Import anat
+    ants_anat = ants.image_read(os.path.join(maindir,anatfullfile),reorient='RAI')
+    
+    # Import functional
+    ants_func = ants.image_read(funcfullfile,reorient='RAI')
+    ants_func = ants.slice_image(ants_func, axis=3, idx=0)
+
+    # Registration estimation
+    registration = ants.registration(fixed=ants_anat, moving=ants_t1_mni, type_of_transform='AffineFast',aff_metric='mattes')
+    
+    #Registration application to the right and left hem
+    ants_hem = ants.apply_transforms(ants_anat,ants_hem_mni , registration['fwdtransforms'])
     
     
-    SEG = final_labels_rsp.get_fdata().transpose(1,0,2)
-    data4,ove4,und4,mapval4 = show_map(ax4,SEG,"GM/WM/CSF",fMRI_colors,0,0,anat)
+    # Resampling to the functional space
+    ants_hem_lowres = ants_hem.resample_image_to_target(ants_func,interp_type='nearestNeighbor').reorient_image2('RAI')
+    ants_hem_lowres = ants_hem_lowres.numpy().transpose(1,0,2)
+    
+    seg = ants_hem_lowres * seg
+    
+
+
+    data4,ove4,und4,mapval4 = show_map(ax4,seg,"GM/WM/CSF",Seg_colors,0,0,anat)
+    pr += 1
+    save2nifti(seg,aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_seg.nii.gz')
     plt.draw()
 
-def seg_calc():
-    print("will average seg")
 
-lb_seg = Label(frame_seg, text="Segmentation (GM/WM/CSF)")
-lb_seg.grid(column=0, row=2,sticky=W,padx=(10,40))
 
-bt_func = Button(frame_seg, text="seg",justify='center',command=seg_func,width=1)
-bt_func.grid(column=1, row=2,sticky=W,padx=(0,0))
+# Create the Treeview in your frame
+tree = ttk.Treeview(
+    frame_seg, 
+    columns=('metric', 'lgm', 'lwm', 'rgm', 'rwm'), 
+    show='headings', 
+    height=6
+)
 
-bt_anat = Button(frame_seg, text="calc",justify='center',command=seg_calc,width=1)
-bt_anat.grid(column=1, row=2,sticky=W,padx=(50,0))
+# Set up the column headings
+tree.heading('metric', text='Metric')
+tree.heading('lgm', text='L GM')
+tree.heading('lwm', text='L WM')
+tree.heading('rgm', text='R GM')
+tree.heading('rwm', text='R WM')
+
+# Set up the column widths and alignment
+tree.column('metric', width=200, anchor='w')
+tree.column('lgm', width=80, anchor='center')
+tree.column('lwm', width=80, anchor='center')
+tree.column('rgm', width=80, anchor='center')
+tree.column('rwm', width=80, anchor='center')
+
+# Place the Treeview widget in the layout
+tree.grid(row=5, column=0, columnspan=2, sticky=W, padx=(10, 40), pady=10)
+# Updated seg_ave function
+def seg_ave():
+    
+    rows = []
+    for dir, fname, label in [
+        (dir_cvr,'bold.nii.gz', 'BOLD(%)'),
+        (dir_cvr,'slope.nii.gz', 'CVR (%/Δstim)'),
+        (dir_cvr,'correlation.nii.gz', 'CORR'),
+        (dir_cvr,'CNR.nii.gz', 'CNR'),
+        (dir_cvr,'lag.nii.gz', 'LAG(s)'),
+        (dir_cvr,'tau.nii.gz', 'TAU(s)'),
+        (dir_relative_modfree,'auc.nii.gz', 'AUC'),
+        (dir_relative_modfree,'max.nii.gz', 'MAX'),
+        (dir_relative_modfree,'bat.nii.gz', 'BAT(s)'),
+        (dir_relative_modfree,'fwhm.nii.gz', 'FWHM(s)'),
+        (dir_relative_modfree,'ttp.nii.gz', 'TTP(s)'),
+        (dir_relative_gamvar,'auc.nii.gz', 'Gamvar AUC'),
+        (dir_relative_gamvar,'max.nii.gz', 'Gamvar MAX'),
+        (dir_relative_gamvar,'bat.nii.gz', 'Gamvar BAT(s)'),
+        (dir_relative_gamvar,'fwhm.nii.gz', 'Gamvar FWHM(s)'),
+        (dir_relative_gamvar,'ttp.nii.gz', 'Gamvar TTP(s)'),
+        (dir_quantitative_decon,'cbv.nii.gz', 'CBV(mL/100g/min)'),
+        (dir_quantitative_decon,'mtt.nii.gz', 'MTT(s)'),
+        (dir_quantitative_decon,'Tmax.nii.gz', 'Tmax(s)'),
+        (dir_quantitative_decon,'cbf.nii.gz', 'CBF'),
+        (dir_quantitative_decon,'cbf_cvt.nii.gz', 'CBF (CBV/MTT)'),
+        (dir_quantitative_expon,'mtt.nii.gz', 'Residue Exp: MTT(s)'),
+        (dir_quantitative_expon,'cbf.nii.gz', 'Residue Exp: CBF (CBV/MTT)'),
+        
+    ]:
+        fullfile = os.path.join(dir, fname)
+        if os.path.isfile(fullfile):
+            print("YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",fullfile)
+            _, img, _ = load_nifti(dir, fname)
+            lgm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 20, img)), 2)
+            lwm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 30, img)), 2)
+            rgm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 2, img)), 2)
+            rwm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 3, img)), 2)
+            rows.append((label, lgm_val, lwm_val, rgm_val, rwm_val)) 
+
+
+        # Clear and insert new 
+        tree.delete(*tree.get_children())
+        for row in rows:
+            tree.insert('', 'end', values=row)
+
+
+def copy_tree_to_clipboard():
+    rows = []
+    for child in tree.get_children():
+        row = tree.item(child)['values']
+        rows.append("\t".join(map(str, row)))
+    table_text = "Metric\tL GM\tL WM\tR GM\tR WM\n" + "\n".join(rows)
+    
+    # Copy to clipboard
+    frame_seg.clipboard_clear()
+    frame_seg.clipboard_append(table_text)
+    frame_seg.update()  # now it stays on the clipboard after window is closed
+
+bt_func = Button(frame_seg, text="seg",justify='center',command=seg_calc,width=1)
+bt_func.grid(column=0, row=2,sticky=W,padx=(10,0))
+
+bt_anat = Button(frame_seg, text="avg",justify='center',command=seg_ave,width=1)
+bt_anat.grid(column=0, row=2,sticky=W,padx=(60,0))
+
+bt_copy = Button(frame_seg, text="copy",justify='center',command=copy_tree_to_clipboard,width=1)
+bt_copy.grid(column=0, row=2,sticky=W,padx=(110,0))
+
+
+
+
+
 # ==================================================================================================================
 # ==================================================================================================================
 # ==================================================================================================================
@@ -3704,7 +3782,6 @@ fig.canvas.mpl_connect('pick_event', on_pick_line)
 fig.canvas.mpl_connect('motion_notify_event', on_move_time)
 fig.canvas.mpl_connect('button_press_event', on_click_time)
 fig.canvas.mpl_connect('button_release_event', on_release_time)
-#fig.canvas.mpl_connect('scroll_event', roll_view)
 
 
 vline, text, cid = on_move_time_set(ax3)
@@ -3733,6 +3810,23 @@ positions, hex_colors = zip(*colors)
 # Create the custom colormap
 fMRI_colors = LinearSegmentedColormap.from_list("custom_cmap", list(zip(positions, hex_colors)))
 
+# Define SEGMENTATION colors
+colors = [
+    (0/30, "#00ff00"), 
+    (1/30, "#00ff00"), 
+    (2/30, "#FF0000"), 
+    (3/30, "#0000ff"),
+    (10/30, "#FBFF00"),
+    (20/30, "#F900E0"), 
+    (30/30, "#03E2FF")     
+]
+
+# Extract the positions and corresponding hex colors separately
+positions, hex_colors = zip(*colors)
+
+# Create the custom colormap
+Seg_colors = LinearSegmentedColormap.from_list("custom_cmap", list(zip(positions, hex_colors)))
+
 # Create a dictionary for colormap names and colormap objects
 colormaps = {
     "hot": plt.cm.hot,
@@ -3741,7 +3835,8 @@ colormaps = {
     "inferno": plt.cm.inferno,
     "bone": plt.cm.bone,
     "turbo": plt.cm.turbo,
-    "fMRI": fMRI_colors  # Add custom colormap with a string name
+    "fMRI": fMRI_colors,  # Add custom colormap with a string name
+    "Seg": Seg_colors # Add the SEG colorscale
 }
 
 
