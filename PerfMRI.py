@@ -1068,7 +1068,8 @@ def calc_relperf_modfree():
     fwhm = t2_50 - t1_50
 
     # Calculate AUC
-    auc = np.sum(data1,axis=3)
+    #auc = np.sum(data1,axis=3)
+    auc = np.trapz(data1, dx=TR, axis=3)
 
     # Calculate cmax : maximum concentration
     cmax = np.max(data1, axis=3)
@@ -1479,7 +1480,7 @@ def calc_quantperf_exp():
     cbf = 60*cbv/mtt # The 60 is to convert to mL/100g/min
     save2nifti(cbf,aff_func_orig,form_code_func_orig,dir_quantitative_expon,'cbf.nii.gz')
 
-def calc_quantperf_bSVD():
+def calc_quantperf_SVD():
 
     if relperf_method.get() == 'GamVar-afni':
         dir_relative = dir_relative_gamvar
@@ -1494,8 +1495,13 @@ def calc_quantperf_bSVD():
     auc_aif = np.mean(masked_auc)
     _, auc_max = vminvmax_percentile(auc,0.1,0.1)
     aif_scaled = auc_max*aif_ave / auc_aif
+
+    if quant_method.get() == 'oSVD':
+        method = 'osvd'
+    elif quant_method.get() == 'SVD':
+        method = 'svd'
     
-    R = deconvolve_brain(data1,aif_scaled,func_mask)
+    R = deconvolve_brain(data1,aif_scaled,func_mask,method=method)
     save2nifti(R,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'R.nii.gz')
     cbf = np.max(R,axis=3) * 100 * 60 * 0.7 # /g/s => /100g/min
     save2nifti(cbf,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'cbf.nii.gz')
@@ -1533,7 +1539,13 @@ def calc_quantcvr():
     auc_aif = np.mean(masked_auc)
     _, auc_max = vminvmax_percentile(auc,0.1,0.1)
     aif_scaled = auc_max*aif_ave / auc_aif
-    R = deconvolve_brain(data1,aif_scaled,func_mask)
+
+    if quant_method_cvr.get() == 'oSVD':
+        method = 'osvd'
+    elif quant_method_cvr.get() == 'SVD':
+        method = 'svd'
+
+    R = deconvolve_brain(data1,aif_scaled,func_mask,method=method)
     save2nifti(R,aff_func_orig,form_code_func_orig,dir_cvr_svd,'R.nii.gz')
     cbf = np.max(R,axis=3) * 100 * 60 * 0.7 # /g/s => /100g/min
     save2nifti(cbf,aff_func_orig,form_code_func_orig,dir_cvr_svd,'cbf.nii.gz')
@@ -1558,10 +1570,11 @@ def view_quantcvr():
     global mapval4, mapval5, mapval6
     global dir_quantitative
 
-    if quant_method_cvr.get() == 'bSVD':
-        dir_quantitative = dir_cvr_svd
-    elif quant_method_cvr.get() == 'Residue Exp':
+    
+    if quant_method_cvr.get() == 'Residue Exp':
         dir_quantitative = dir_cvr_expon
+    else:
+        dir_quantitative = dir_cvr_svd
     
     _,cbv_array,label4 = load_nifti(dir_quantitative,'cbv.nii.gz')
     data4,ove4,und4,mapval4 = show_map(ax4,cbv_array,label4,'hot',5,5,anat)
@@ -1576,10 +1589,10 @@ def view_quantcvr():
 
 
 def press_calc_quantperf():
-    if quant_method.get() == 'bSVD':
-        calc_quantperf_bSVD()
-    elif quant_method.get() == 'Residue Exp':
+    if quant_method.get() == 'Residue Exp':
         calc_quantperf_exp()
+    else:
+        calc_quantperf_SVD()
     view_quantperf()    
 
 def press_calc_tau_2d():
@@ -1765,43 +1778,70 @@ def multi_regress(data1, aifconvs, dmtt):
 
 ## Deconvoltion
 
+# --- Matrix creation functions ---
+
 def create_block_circulant_matrix(aif):
-    """Create a block-circulant matrix from the arterial input function (AIF)."""
+    """Create a block-circulant matrix (for oSVD)."""
     n = len(aif)
-    first_column = np.concatenate((aif, np.zeros(n-1)))
-    return toeplitz(first_column, np.zeros(2*n-1))[:n, :n]
+    H = np.zeros((n, n))
+    for i in range(n):
+        H[i] = np.roll(aif, i)
+    return H
 
-def deconvolve(Ct, aif):
-    # Create the block-circulant matrix H using the arterial input function Ca
-    H = create_block_circulant_matrix(aif)
-    
-    # Perform Singular Value Decomposition (SVD)
+def create_toeplitz_matrix(aif):
+    """Create a standard convolution (Toeplitz) matrix (for SVD)."""
+    return toeplitz(aif, np.zeros(len(aif)))
+
+# --- Precompute inverse H using SVD ---
+
+def prepare_inverse(H, percentage=0.2):
+    """Compute regularized pseudo-inverse of matrix H using SVD."""
     U, s, Vh = npl.svd(H, full_matrices=False)
-    
-    max_singular_value = np.max(s)
-    # Set tolerance as a percentage of the maximum singular value
-    # Regularization: Invert only for significant singular values
-    percentage = 0.2  # Example: 20% of the maximum singular value
-    tolerance = percentage * max_singular_value
-    s_inv = np.array([1/x if x > tolerance else 0 for x in s])
-    
-    # Compute the pseudo-inverse of H using SVD components
-    H_inv = np.dot(Vh.T, np.dot(np.diag(s_inv), U.T))
-    
-    # Deconvolve to find the residue function R(t)
-    Rt = np.dot(H_inv, Ct)
-    
-    return Rt
+    tol = percentage * np.max(s)
+    s_inv = np.array([1/x if x > tol else 0 for x in s])
+    return Vh.T @ np.diag(s_inv) @ U.T
 
-def deconvolve_brain(array_4d,aif,mask):
-    R = np.zeros_like(array_4d,dtype=float)
-    ni,nj,nk,_ = R.shape
+# --- Voxel-wise deconvolution ---
+
+def deconvolve_brain(array_4d, aif, mask, method='osvd', percentage=0.2):
+    """
+    Perform voxel-wise deconvolution on a 4D fMRI array using either standard SVD or oSVD.
+
+    Parameters:
+    - array_4d: 4D array of signal (x, y, z, time)
+    - aif: 1D arterial input function
+    - mask: 3D brain mask
+    - method: 'svd' (Toeplitz) or 'osvd' (block circulant)
+    - percentage: regularization threshold for singular values
+
+    Returns:
+    - R: 4D array of residue functions (same shape as array_4d)
+    """
+    if method == 'osvd':
+        H = create_block_circulant_matrix(aif)
+        np.savetxt('oH.txt',H)
+        print("Block circulant SVD")
+    elif method == 'svd':
+        H = create_toeplitz_matrix(aif)
+        np.savetxt('oH.txt',H)
+        print("Regular SVD")
+    else:
+        raise ValueError("method must be 'osvd' or 'svd'")
+
+    H_inv = prepare_inverse(H, percentage)
+
+    # Initialize output
+    R = np.zeros_like(array_4d, dtype=float)
+    ni, nj, nk, _ = R.shape
+
     for i in range(ni):
         for j in range(nj):
             for k in range(nk):
-                if (mask[i,j,k] != 0):
-                    R[i,j,k,:] = deconvolve(array_4d[i,j,k,:],aif)
+                if mask[i, j, k]:
+                    Ct = array_4d[i, j, k, :]
+                    R[i, j, k, :] = H_inv @ Ct
     return R
+
 
 def view_quantperf():
     global data4  , data5  , data6
@@ -1811,12 +1851,11 @@ def view_quantperf():
     global mapval4, mapval5, mapval6
     global dir_quantitative
 
-    if quant_method.get() == 'bSVD':
-        dir_quantitative = dir_quantitative_decon
-    elif quant_method.get() == 'Residue Exp':
+    
+    if quant_method.get() == 'Residue Exp':
         dir_quantitative = dir_quantitative_expon
     else:
-        print("This method not available")
+        dir_quantitative = dir_quantitative_decon
     
     _,cbv_array,label4 = load_nifti(dir_quantitative,'cbv.nii.gz')
     data4,ove4,und4,mapval4 = show_map(ax4,cbv_array,label4,'hot',5,5,anat)
@@ -2809,17 +2848,17 @@ def seg_calc():
 # Create the Treeview in your frame
 tree = ttk.Treeview(
     frame_seg, 
-    columns=('metric', 'lgm', 'lwm', 'rgm', 'rwm'), 
+    columns=('metric', 'rgm', 'rwm', 'lgm', 'lwm'), 
     show='headings', 
     height=6
 )
 
 # Set up the column headings
 tree.heading('metric', text='Metric')
-tree.heading('lgm', text='L GM')
-tree.heading('lwm', text='L WM')
 tree.heading('rgm', text='R GM')
 tree.heading('rwm', text='R WM')
+tree.heading('lgm', text='L GM')
+tree.heading('lwm', text='L WM')
 
 # Set up the column widths and alignment
 tree.column('metric', width=200, anchor='w')
@@ -2862,13 +2901,12 @@ def seg_ave():
     ]:
         fullfile = os.path.join(dir, fname)
         if os.path.isfile(fullfile):
-            print("YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",fullfile)
             _, img, _ = load_nifti(dir, fname)
-            lgm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 20, img)), 2)
-            lwm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 30, img)), 2)
             rgm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 2, img)), 2)
             rwm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 3, img)), 2)
-            rows.append((label, lgm_val, lwm_val, rgm_val, rwm_val)) 
+            lgm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 20, img)), 2)
+            lwm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 30, img)), 2)
+            rows.append((label, rgm_val, rwm_val, lgm_val, lwm_val)) 
 
 
         # Clear and insert new 
@@ -2882,7 +2920,7 @@ def copy_tree_to_clipboard():
     for child in tree.get_children():
         row = tree.item(child)['values']
         rows.append("\t".join(map(str, row)))
-    table_text = "Metric\tL GM\tL WM\tR GM\tR WM\n" + "\n".join(rows)
+    table_text = "Metrics\tR GM\tR WM\tL GM\tL WM\n" + "\n".join(rows)
     
     # Copy to clipboard
     frame_seg.clipboard_clear()
@@ -3479,9 +3517,9 @@ bt_calc_quantperf = Button(frame_perf, text="calc",justify='center',command=pres
 bt_calc_quantperf.grid(column=1, row=row_quantitative_map,sticky=W, padx=(120,0))
 
 quant_method = StringVar()
-quant_choices = ['bSVD','Residue Exp']
+quant_choices = ['SVD','oSVD','Residue Exp']
 quant_menu = OptionMenu(frame_perf, quant_method, *quant_choices)
-quant_method.set('bSVD') # set the default option
+quant_method.set('oSVD') # set the default option
 quant_menu.grid(row=row_quantitative_map, column=1, sticky=W, columnspan=2, padx=(0,0))
 quant_menu.config(width=8)
 
@@ -3650,9 +3688,9 @@ lb_quantperf = Label(frame_cvr, text="Quantitative Perfusion",justify='left')
 lb_quantperf.grid(row=18,column=0,sticky=W,padx=(10,40))
 
 quant_method_cvr = StringVar()
-quant_choices_cvr = ['bSVD','Residue Exp']
+quant_choices_cvr = ['SVD','oSVD']
 quant_menu_cvr = OptionMenu(frame_cvr, quant_method_cvr, *quant_choices_cvr)
-quant_method_cvr.set('bSVD') # set the default option
+quant_method_cvr.set('oSVD') # set the default option
 quant_menu_cvr.grid(row=18, column=1, sticky=W, columnspan=2, padx=(0,0))
 quant_menu_cvr.config(width=8)
 
