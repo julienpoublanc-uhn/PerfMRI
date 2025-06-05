@@ -16,7 +16,7 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
 - Relative perfusion metrics (AUC, TTP, FWHM, BAT)
 - TTP, BAT maps have sub-TR temporal precision
 - Automated AIF detection based on relative perfusion metrics
-- Quantitative perfusion using circular deconvolution or model-based residue function (exponential)
+- Quantitative perfusion using SVD, oSVD or model-based residue function (exponential)
 - Tmax calculation
 
 ### Breath-Hold and CVR:
