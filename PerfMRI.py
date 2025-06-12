@@ -62,6 +62,7 @@ import ants
 import platform
 if platform.system() == 'Windows':
     from tkinter.ttk import Button as Button, Label as Label
+    bt_small = 3
 elif platform.system() == 'Darwin':
     bt_small = 1
 elif  platform.system() == 'Linux':

@@ -43,12 +43,12 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
 
 pip install numpy==1.24.2 scipy==1.15.3 matplotlib==3.10.3 nibabel==3.2.2 \
     nilearn==0.10.2 nipy==0.6.1 dicom2nifti==2.4.10 \
-    pydicom==2.2.2 reorient-nii==1.0.0 antspyx==0.3.8
+    pydicom==2.2.2 reorient-nii==1.0.0 antspyx==0.4.2
 
 or using the requirements.txt file:
 pip install -r requirements.txt
 
-
+=
 ## To run PerfMRI
 /path_to_program/PerfMRI.py
 or 
