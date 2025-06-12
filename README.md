@@ -34,25 +34,19 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
 - Multiple colorscales available
 - Automatic or manual color scale limits
 - All maps can be automatically or manually exported
+- Quick segmentation into grey matter, white matter and csf and subdivided into left and right hemisphere.
 
 ## Installation
 
 - Tested with Python 3.10
-- Required packages:
-numpy 
-scipy 
-matplotlib 
-nibabel 
-nilearn 
-nipy 
-dicom2nifti 
-pydicom 
-reorient-nii
+- PerfMRI requires a few packages that can be installed as follow:
 
-Install with:
-pip install numpy==1.24.2 scipy==1.10.1 matplotlib==3.9.0 nibabel==3.2.2 \
+pip install numpy==1.24.2 scipy==1.15.3 matplotlib==3.10.3 nibabel==3.2.2 \
     nilearn==0.10.2 nipy==0.6.1 dicom2nifti==2.4.10 \
-    pydicom==1.4.2 reorient-nii==1.0.0
+    pydicom==2.2.2 reorient-nii==1.0.0 antspyx==0.3.8
+
+or using the requirements.txt file:
+pip install -r requirements.txt
 
 
 ## To run PerfMRI

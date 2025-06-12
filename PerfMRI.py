@@ -5,8 +5,6 @@ import os
 import shutil
 from tkinter import *
 from tkinter import filedialog, simpledialog, ttk, messagebox
-import threading
-import time
 
 import subprocess
 import numpy as np
@@ -27,16 +25,21 @@ from matplotlib.transforms import blended_transform_factory
 from matplotlib.gridspec import GridSpec
 
 
-import time
-
 from reorient_nii import load as load_orient
 from nilearn.masking import compute_epi_mask, apply_mask
 from nilearn.image import smooth_img
 import math
-import pydicom
-pydicom.config.disable_enconders = True
-import dicom2nifti
-
+try:
+    import pydicom
+    pydicom.config.disable_enconders = True
+    pydicom_available = True
+except:
+    pydicom_available = False
+try:
+    import dicom2nifti
+    dicom2nifti_available = True
+except:
+    dicom2nifti_available = False
 
 from scipy.signal import convolve, argrelmin, argrelmax, find_peaks
 from scipy.linalg import toeplitz
@@ -50,11 +53,20 @@ from sklearn.linear_model import LinearRegression
 from functools import partial
 
 from nipy.algorithms.registration.groupwise_registration import SpaceRealign, SpaceTimeRealign
-from nipy import load_image, save_image
-
 from nilearn.image import resample_to_img
 from sklearn.cluster import KMeans
 import ants
+
+
+# Platfom specific
+import platform
+if platform.system() == 'Windows':
+    from tkinter.ttk import Button as Button, Label as Label
+elif platform.system() == 'Darwin':
+    bt_small = 1
+elif  platform.system() == 'Linux':
+    pass
+
 
 # Show/hide overlay ==================================================================================
 # ====================================================================================================
@@ -1490,12 +1502,14 @@ def calc_quantperf_SVD():
     os.makedirs(dir_quantitative_decon, exist_ok=True)
 
     aif_ave = mask_average(data1,aif)
+    auc_aif = np.trapz(aif_ave)
+
+
     _,auc,_ = load_nifti(dir_relative,'auc.nii.gz')
-    masked_auc = np.ma.masked_where(aif.mask,auc)
-    auc_aif = np.mean(masked_auc)
-    _, auc_max = vminvmax_percentile(auc,0.1,0.1)
+    auc_max = np.max(auc)
     aif_scaled = auc_max*aif_ave / auc_aif
 
+    
     if quant_method.get() == 'oSVD':
         method = 'osvd'
     elif quant_method.get() == 'SVD':
@@ -1532,12 +1546,13 @@ def calc_quantcvr():
     
     resetplot(ax3,data1,TR)
     data1_masked = np.where(data1 >= 0, data1, 0)
-    auc = np.ma.sum(data1_masked, axis=3)
+    auc = np.ma.trapz(data1_masked, axis=3)
     save2nifti(auc,aff_func_orig,form_code_func_orig,dir_cvr_svd,'auc.nii.gz')
     aif_ave = mask_average(data1,aif)
     masked_auc = np.ma.masked_where(aif.mask,auc)
     auc_aif = np.mean(masked_auc)
     _, auc_max = vminvmax_percentile(auc,0.1,0.1)
+    auc_max = np.max(auc)
     aif_scaled = auc_max*aif_ave / auc_aif
 
     if quant_method_cvr.get() == 'oSVD':
@@ -1819,11 +1834,9 @@ def deconvolve_brain(array_4d, aif, mask, method='osvd', percentage=0.2):
     """
     if method == 'osvd':
         H = create_block_circulant_matrix(aif)
-        np.savetxt('oH.txt',H)
         print("Block circulant SVD")
     elif method == 'svd':
         H = create_toeplitz_matrix(aif)
-        np.savetxt('oH.txt',H)
         print("Regular SVD")
     else:
         raise ValueError("method must be 'osvd' or 'svd'")
@@ -2927,13 +2940,13 @@ def copy_tree_to_clipboard():
     frame_seg.clipboard_append(table_text)
     frame_seg.update()  # now it stays on the clipboard after window is closed
 
-bt_func = Button(frame_seg, text="seg",justify='center',command=seg_calc,width=1)
+bt_func = Button(frame_seg, text="seg",command=seg_calc,width=bt_small)
 bt_func.grid(column=0, row=2,sticky=W,padx=(10,0))
 
-bt_anat = Button(frame_seg, text="avg",justify='center',command=seg_ave,width=1)
+bt_anat = Button(frame_seg, text="avg",command=seg_ave,width=bt_small)
 bt_anat.grid(column=0, row=2,sticky=W,padx=(60,0))
 
-bt_copy = Button(frame_seg, text="copy",justify='center',command=copy_tree_to_clipboard,width=1)
+bt_copy = Button(frame_seg, text="copy",command=copy_tree_to_clipboard,width=bt_small)
 bt_copy.grid(column=0, row=2,sticky=W,padx=(110,0))
 
 
@@ -3252,7 +3265,7 @@ current_tab_index = nb_analysis.index("current")
     # Get the text of the currently selected tab
 current_tab_text = nb_analysis.tab(current_tab_index, "text")
 
-bt_adv_opt = Button(frame_ui, text="Options...",justify='center',command=open_advanced_options,bg="red",fg="blue")
+bt_adv_opt = Button(frame_ui, text="Options...",command=open_advanced_options,bg="red",fg="blue")
 bt_adv_opt.pack(side=TOP,anchor="w",padx=10, pady=10)
 
 
@@ -3340,10 +3353,10 @@ script_directory = os.path.dirname(script_path)
 lb_convert = Label(frame_preprocess, text="Dicom2nifti")
 lb_convert.grid(column=0, row=2,sticky=W,padx=(10,40))
 
-bt_func = Button(frame_preprocess, text="func",justify='center',command=convert_func,width=1)
+bt_func = Button(frame_preprocess, text="func",command=convert_func,width=bt_small)
 bt_func.grid(column=1, row=2,sticky=W,padx=(0,0))
 
-bt_anat = Button(frame_preprocess, text="anat",justify='center',command=convert_anat,width=1)
+bt_anat = Button(frame_preprocess, text="anat",command=convert_anat,width=bt_small)
 bt_anat.grid(column=1, row=2,sticky=W,padx=(50,0))
 
 # LINE 02
@@ -3351,13 +3364,13 @@ bt_anat.grid(column=1, row=2,sticky=W,padx=(50,0))
 lb_func_pick = Label(frame_preprocess, text="Input nifti")
 lb_func_pick.grid(column=0, row=3,sticky=W,padx=(10,40))
 
-bnt_choose_funcfile = Button(frame_preprocess, text="func",justify='center',command=click_choose_funcfile,width=1)
+bnt_choose_funcfile = Button(frame_preprocess, text="func",command=click_choose_funcfile,width=bt_small)
 bnt_choose_funcfile.grid(column=1, row=3,sticky=W,padx=(0,0))
 
-bnt_choose_anatfile = Button(frame_preprocess, text="anat",justify='center',command=click_choose_anatfile,width=1)
+bnt_choose_anatfile = Button(frame_preprocess, text="anat",command=click_choose_anatfile,width=bt_small)
 bnt_choose_anatfile.grid(column=1, row=3,sticky=W,padx=(50,0))
 
-bt_load_raw = Button(frame_preprocess, text="load",justify='center',command=press_load_raw,width=1,fg="black",activeforeground="red")
+bt_load_raw = Button(frame_preprocess, text="load",command=press_load_raw,width=bt_small,fg="black",activeforeground="red")
 bt_load_raw.grid(column=1, row=3,sticky=W,padx=(100,0))
 
 # Mask brain
@@ -3372,17 +3385,17 @@ tkvar_masktype.set('Automask') # set the default option
 menu_masktype.grid(column = 1,row=4,sticky=W, padx=(0,0))
 menu_masktype.config(width=8)
 
-bnt_mask_brain = Button(frame_preprocess, text="calc", justify='center',command=mask_brain,width=1)
+bnt_mask_brain = Button(frame_preprocess, text="calc", justify='center',command=mask_brain,width=bt_small)
 bnt_mask_brain.grid(column=1, row=4, sticky=W, padx=(120,0))
 
 # Trim the signal
 lb_trim_signal = Label(frame_preprocess, text="Trim Signal")
 lb_trim_signal.grid(column=0, row=5,sticky=W,padx=(10,40))
 
-bnt_set_vlines = Button(frame_preprocess, text="set", justify='center',command=set_vlines,width=1)
+bnt_set_vlines = Button(frame_preprocess, text="set", justify='center',command=set_vlines,width=bt_small)
 bnt_set_vlines.grid(column=1, row=5, sticky=W, padx=(0,0))
 
-bnt_trim_signal = Button(frame_preprocess, text="calc",justify='center',command=trim_signal,width=1)
+bnt_trim_signal = Button(frame_preprocess, text="calc",command=trim_signal,width=bt_small)
 bnt_trim_signal.grid(column=1, row=5,sticky=W,padx=(50,0))
 
 
@@ -3400,7 +3413,7 @@ menu_slicetime.config(width=8)
 
 # Attach the trace to the StringVar, monitoring changes
 tkvar_slicetime.trace('w', on_slicetime_change)
-bt_slicetime = Button(frame_preprocess, text="calc",justify='center',command=press_time_realign,width=1)
+bt_slicetime = Button(frame_preprocess, text="calc",command=press_time_realign,width=bt_small)
 bt_slicetime.grid(column=1, row=6,sticky=W,padx=(120,0))
 
 
@@ -3409,7 +3422,7 @@ lb_space_realign = Label(frame_preprocess, text="Space Realign")
 lb_space_realign.grid(column=0, row=8,sticky=W,padx=(10,10))
 
 # Calc 
-bt_slicetime = Button(frame_preprocess, text="calc",justify='center',command=press_space_realign,width=1)
+bt_slicetime = Button(frame_preprocess, text="calc",command=press_space_realign,width=bt_small)
 bt_slicetime.grid(column=1, row=8,sticky=W,padx=(120,0))
 
 
@@ -3426,7 +3439,7 @@ menu_poly.grid(row=10, column = 1, sticky=W, padx=(0,0),pady=(2,0))
 menu_poly.config(width=8)
 
 
-bt_detrend = Button(frame_preprocess, text="calc",justify='center',command=press_detrend_signal,width=1,fg="black",activeforeground="red")
+bt_detrend = Button(frame_preprocess, text="calc",command=press_detrend_signal,width=bt_small,fg="black",activeforeground="red")
 bt_detrend.grid(column=1, row=10,sticky=W,padx=(120,0))
 
 
@@ -3442,7 +3455,7 @@ tkvar_imtype.set('Concentration') # set the default option
 menu_imtype.grid(row=12, column = 1, sticky=W, padx=(0,0),pady=(2,0))
 menu_imtype.config(width=8)
 
-bt_scale_signal = Button(frame_preprocess, text="calc",justify='center',command=press_scale_signal,width=1,fg="black",activeforeground="red")
+bt_scale_signal = Button(frame_preprocess, text="calc",command=press_scale_signal,width=bt_small,fg="black",activeforeground="red")
 bt_scale_signal.grid(column=1, row=12,sticky=W,padx=(120,0))
 
 # Spatial smoothing
@@ -3455,7 +3468,7 @@ lb_fwhm.grid(column=1, row=14, sticky=W, padx=(0,10))
 sb_fwhm = Spinbox(frame_preprocess, from_=0, to=20,increment=0.1,width=3)  # You can set a range, like 0 to 20
 sb_fwhm.grid(row=14, column = 1, sticky=W, padx=(80,0),pady=(2,0))
 
-bt_spatial_smoothing = Button(frame_preprocess, text="calc", justify='center',command=press_spatial_smoothing,width=1,fg="black",activeforeground="red")
+bt_spatial_smoothing = Button(frame_preprocess, text="calc", justify='center',command=press_spatial_smoothing,width=bt_small,fg="black",activeforeground="red")
 bt_spatial_smoothing.grid(column=1, row=14, sticky=W, padx=(150,0))
 
 # Temporal smoothing
@@ -3468,7 +3481,7 @@ lb_fwhm_t.grid(column=1, row=16, sticky=W, padx=(0,10))
 sb_fwhm_t = Spinbox(frame_preprocess, from_=0, to=20,increment=0.1,width=3)  # You can set a range, like 0 to 20
 sb_fwhm_t.grid(row=16, column = 1, sticky=W, padx=(80,0),pady=(2,0))
 
-bt_temporal_smoothing = Button(frame_preprocess, text="calc", justify='center',command=press_temporal_smoothing,width=1,fg="black",activeforeground="red")
+bt_temporal_smoothing = Button(frame_preprocess, text="calc", justify='center',command=press_temporal_smoothing,width=bt_small,fg="black",activeforeground="red")
 bt_temporal_smoothing.grid(column=1, row=16, sticky=W, padx=(150,0))
 
 # LINE 06
@@ -3477,7 +3490,7 @@ bt_temporal_smoothing.grid(column=1, row=16, sticky=W, padx=(150,0))
 lb_relperf = Label(frame_perf, text="Relative Perfusion",justify='left')
 lb_relperf.grid(row=row_relative_map,column=0,sticky=W,padx=(10,40))
 
-bt_calc_relperf = Button(frame_perf, text="calc",justify='center',command=press_calc_relperf,width=1,activeforeground="red")
+bt_calc_relperf = Button(frame_perf, text="calc",command=press_calc_relperf,width=bt_small,activeforeground="red")
 bt_calc_relperf.grid(column=1, row=row_relative_map,sticky=W, padx=(120,0))
 
 relperf_method = StringVar()
@@ -3488,7 +3501,7 @@ protocol_menu.grid(row=row_relative_map, column=1, sticky=W, columnspan=2, padx=
 protocol_menu.config(width=8)
 
 
-bt_view_relperf = Button(frame_perf, text="view",justify='center',command=view_relperf,width=1,fg="black")
+bt_view_relperf = Button(frame_perf, text="view",command=view_relperf,width=bt_small,fg="black")
 bt_view_relperf.grid(column=1, row=row_relative_map,sticky=W, padx=(170,0))
 
 
@@ -3501,10 +3514,10 @@ lb_nvox.grid(column=1, row=row_aif,sticky=W,padx=(0,0))
 txt_nvox = Text(frame_perf,width=3,height=1,font='red',relief=SUNKEN,borderwidth=2)
 txt_nvox.grid(column=1, row=row_aif,sticky=W,padx=(75,0))
 
-bt_calc_aif = Button(frame_perf, text="calc",justify='center',command=calc_aif,width=1,fg="black")
+bt_calc_aif = Button(frame_perf, text="calc",command=calc_aif,width=bt_small,fg="black")
 bt_calc_aif.grid(column=1, row=row_aif,sticky=W, padx=(120,0),pady=(0,0))
 
-#bt_save_aif = Button(frame_perf, text="save",justify='center',command=save_aif,width=1,fg="black")
+#bt_save_aif = Button(frame_perf, text="save",command=save_aif,width=bt_small,fg="black")
 #bt_save_aif.grid(column=1, row=row_aif,sticky=W, padx=(170,0))
 
 
@@ -3513,7 +3526,7 @@ bt_calc_aif.grid(column=1, row=row_aif,sticky=W, padx=(120,0),pady=(0,0))
 lb_quantperf = Label(frame_perf, text="Quantitative Perfusion",justify='left')
 lb_quantperf.grid(row=row_quantitative_map,column=0,sticky=W,padx=(10,40))
 
-bt_calc_quantperf = Button(frame_perf, text="calc",justify='center',command=press_calc_quantperf,width=1,fg="black",activeforeground="red")
+bt_calc_quantperf = Button(frame_perf, text="calc",command=press_calc_quantperf,width=bt_small,fg="black",activeforeground="red")
 bt_calc_quantperf.grid(column=1, row=row_quantitative_map,sticky=W, padx=(120,0))
 
 quant_method = StringVar()
@@ -3525,7 +3538,7 @@ quant_menu.config(width=8)
 
 
 # Button to show quantitative perfusion maps
-bnt_view_quantperf = Button(frame_perf, text="view",justify='center',command=view_quantperf,width=1,fg="black")
+bnt_view_quantperf = Button(frame_perf, text="view",command=view_quantperf,width=bt_small,fg="black")
 bnt_view_quantperf.grid(column=1, row=row_quantitative_map,sticky=W, padx=(170,0))
 
 
@@ -3586,15 +3599,15 @@ menu_cvr_ref.grid(row=0, column=1, sticky=W, columnspan=2, padx=(0,0))
 menu_cvr_ref.config(width=8)
 type_cvr_ref.trace('w', calc_cvr_ref)
 
-bt_shift_left = Button(frame_cvr, text="<<",justify='center',command=press_shift_cvr_ref_left,width=1,activeforeground="red")
+bt_shift_left = Button(frame_cvr, text="<<",command=press_shift_cvr_ref_left,width=bt_small,activeforeground="red")
 bt_shift_left.grid(column=1, row=0,sticky=W, padx=(120,0))
 
-bt_shift_right = Button(frame_cvr, text=">>",justify='center',command=press_shift_cvr_ref_right,width=1,padx=1,activeforeground="red")
+bt_shift_right = Button(frame_cvr, text=">>",command=press_shift_cvr_ref_right,width=bt_small,padx=1,activeforeground="red")
 bt_shift_right.grid(column=1, row=0,sticky=W, padx=(170,0))
 
-bt_calc_regression = Button(frame_cvr, text="calc",justify='center',command=press_calc_regression,width=1,fg="black")
+bt_calc_regression = Button(frame_cvr, text="calc",command=press_calc_regression,width=bt_small,fg="black")
 bt_calc_regression.grid(column=1, row=0,sticky=W, padx=(220,0))
-bt_view_regression = Button(frame_cvr, text="view",justify='center',command=press_view_regression,width=1,fg="black")
+bt_view_regression = Button(frame_cvr, text="view",command=press_view_regression,width=bt_small,fg="black")
 bt_view_regression.grid(column=1, row=0,sticky=W, padx=(260,0))
 
 # Define Time windows
@@ -3609,19 +3622,19 @@ menu_bands.grid(row=1, column=1, sticky=W, columnspan=2, padx=(0,0))
 menu_bands.config(width=4)
 type_bands.trace('w', press_define_windows)
 
-bt_move_bands_left = Button(frame_cvr, text="<",justify='center',command=move_bands_left,width=1,fg="black")
+bt_move_bands_left = Button(frame_cvr, text="<",command=move_bands_left,width=bt_small,fg="black")
 bt_move_bands_left.grid(column=1, row=1,sticky=W, padx=(80,0),pady=(0,0))
 
-bt_move_bands_right = Button(frame_cvr, text=">",justify='center',command=move_bands_right,width=1,fg="black")
+bt_move_bands_right = Button(frame_cvr, text=">",command=move_bands_right,width=bt_small,fg="black")
 bt_move_bands_right.grid(column=1, row=1,sticky=W, padx=(120,0),pady=(0,0))
 
-bt_shrink_bands = Button(frame_cvr, text="><",justify='center',command=shrink_bands,width=1,fg="black")
+bt_shrink_bands = Button(frame_cvr, text="><",command=shrink_bands,width=bt_small,fg="black")
 bt_shrink_bands.grid(column=1, row=1,sticky=W, padx=(160,0),pady=(0,0))
 
-bt_dilate_bands = Button(frame_cvr, text="<>",justify='center',command=dilate_bands,width=1,fg="black")
+bt_dilate_bands = Button(frame_cvr, text="<>",command=dilate_bands,width=bt_small,fg="black")
 bt_dilate_bands.grid(column=1, row=1,sticky=W, padx=(200,0),pady=(0,0))
 
-bt_ave_time = Button(frame_cvr, text="calc",justify='center',command=calc_ave_time_windows,width=1,fg="black")
+bt_ave_time = Button(frame_cvr, text="calc",command=calc_ave_time_windows,width=bt_small,fg="black")
 bt_ave_time.grid(column=1, row=1,sticky=W, padx=(240,0),pady=(0,0))
 
 
@@ -3631,17 +3644,17 @@ bt_ave_time.grid(column=1, row=1,sticky=W, padx=(240,0),pady=(0,0))
 lb_tau = Label(frame_cvr, text="Tau   analysis",justify='left')
 lb_tau.grid(column=0,row=3,sticky=W,padx=(10,40))
 
-box_tau_minmax = Text(frame_cvr,width=18,height=1,font='grey',relief=SUNKEN,borderwidth=2)
+box_tau_minmax = Text(frame_cvr,width=8,height=1,font='grey',relief=SUNKEN,borderwidth=2)
 box_tau_minmax.insert('1.0', 'start=0 end=8 step=0.2')  # Insert default text at the start (line 1, character 0)
 box_tau_minmax.grid(column=1, row=3,sticky=W,padx=(0,0))
 
-bt_calc_tau_2d = Button(frame_cvr, text="👁",justify='center',command=press_calc_tau_2d,width=1,fg="black")
+bt_calc_tau_2d = Button(frame_cvr, text="👁",command=press_calc_tau_2d,width=bt_small,fg="black")
 bt_calc_tau_2d.grid(column=1, row=3,sticky=W, padx=(180,0),pady=(0,0))
 
-bt_calc_tau = Button(frame_cvr, text="calc",justify='center',command=press_calc_tau,width=1,fg="black")
+bt_calc_tau = Button(frame_cvr, text="calc",command=press_calc_tau,width=bt_small,fg="black")
 bt_calc_tau.grid(column=1, row=3,sticky=W, padx=(220,0),pady=(0,0))
 
-bt_view_tau = Button(frame_cvr, text="view",justify='center',command=press_view_tau,width=1,fg="black")
+bt_view_tau = Button(frame_cvr, text="view",command=press_view_tau,width=bt_small,fg="black")
 bt_view_tau.grid(column=1, row=3,sticky=W, padx=(260,0),pady=(0,0))
 
 
@@ -3649,17 +3662,17 @@ bt_view_tau.grid(column=1, row=3,sticky=W, padx=(260,0),pady=(0,0))
 lb_lag = Label(frame_cvr, text="Lag analysis",justify='left')
 lb_lag.grid(column=0,row=6,sticky=W,padx=(10,40))
 
-box_lag_minmax = Text(frame_cvr,width=18,height=1,font='grey',relief=SUNKEN,borderwidth=2)
+box_lag_minmax = Text(frame_cvr,width=8,height=1,font='grey',relief=SUNKEN,borderwidth=2)
 box_lag_minmax.insert('1.0', 'start=0 end=8 step=0.2')  # Insert default text at the start (line 1, character 0)
 box_lag_minmax.grid(column=1, row=6,sticky=W,padx=(0,0))
 
-bt_calc_lag_2d = Button(frame_cvr, text="👁",justify='center',command=press_calc_lag_2d,width=1,fg="black")
+bt_calc_lag_2d = Button(frame_cvr, text="👁",command=press_calc_lag_2d,width=bt_small,fg="black")
 bt_calc_lag_2d.grid(column=1, row=6,sticky=W, padx=(180,0),pady=(0,0))
 
-bt_calc_lag = Button(frame_cvr, text="calc",justify='center',command=press_calc_lag,width=1,fg="black")
+bt_calc_lag = Button(frame_cvr, text="calc",command=press_calc_lag,width=bt_small,fg="black")
 bt_calc_lag.grid(column=1, row=6,sticky=W, padx=(220,0),pady=(0,0))
 
-bt_view_lag = Button(frame_cvr, text="view",justify='center',command=press_view_lag,width=1,fg="black")
+bt_view_lag = Button(frame_cvr, text="view",command=press_view_lag,width=bt_small,fg="black")
 bt_view_lag.grid(column=1, row=6,sticky=W, padx=(260,0),pady=(0,0))
 
 
@@ -3680,7 +3693,7 @@ type_aif.set('Neg') # set the default option
 menu_cvr_aif.grid(row=9, column=1, sticky=W, padx=(108,0),pady=(5,0))
 type_aif.trace('w', calc_aif_cvr)
 
-bt2_calc_aif = Button(frame_cvr, text="calc",justify='center',command=calc_aif_cvr,width=1,fg="black")
+bt2_calc_aif = Button(frame_cvr, text="calc",command=calc_aif_cvr,width=bt_small,fg="black")
 bt2_calc_aif.grid(column=1, row=9,sticky=W, padx=(180,0),pady=(0,0))
 
 
@@ -3695,17 +3708,17 @@ quant_menu_cvr.grid(row=18, column=1, sticky=W, columnspan=2, padx=(0,0))
 quant_menu_cvr.config(width=8)
 
 # Button to calc quantitative perfusion maps
-bt_calc_quantperf = Button(frame_cvr, text="calc",justify='center',command=calc_quantcvr,width=1,fg="black",activeforeground="red")
+bt_calc_quantperf = Button(frame_cvr, text="calc",command=calc_quantcvr,width=bt_small,fg="black",activeforeground="red")
 bt_calc_quantperf.grid(column=1, row=18,sticky=W, padx=(120,0))
 
 # Button to show quantitative perfusion maps
-bnt_view_quantperf = Button(frame_cvr, text="view",justify='center',command=view_quantperf,width=1,fg="black")
+bnt_view_quantperf = Button(frame_cvr, text="view",command=view_quantperf,width=bt_small,fg="black")
 bnt_view_quantperf.grid(column=1, row=18,sticky=W, padx=(170,0))
 
 # Create a progress bar widget
 #frame_progbar = Frame(window)
 
-label = ttk.Label(window, text="0%")
+label = Label(window, text="0%")
 label.pack(side=BOTTOM, padx=10,pady=0)
 progress_bar = ttk.Progressbar(window, orient="horizontal", length=300, mode="determinate")
 progress_bar.pack(side=BOTTOM, padx=10, pady=0)
