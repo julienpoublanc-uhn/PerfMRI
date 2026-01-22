@@ -7,6 +7,7 @@ from tkinter import *
 from tkinter import filedialog, simpledialog, ttk, messagebox
 
 import subprocess
+import threading
 import numpy as np
 import numpy.linalg as npl
 import nibabel as nb
@@ -16,6 +17,7 @@ from nibabel.processing import resample_from_to
 from matplotlib.pyplot import Figure
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, RangeSlider
+from matplotlib.widgets import LassoSelector
 from matplotlib.widgets import Button as Button_mpl
 from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg,NavigationToolbar2Tk)
 from matplotlib.backend_bases import MouseButton
@@ -23,7 +25,8 @@ from matplotlib.colors import (LinearSegmentedColormap,ListedColormap, Normalize
 from matplotlib.lines import Line2D
 from matplotlib.transforms import blended_transform_factory
 from matplotlib.gridspec import GridSpec
-
+import matplotlib.patches as patches
+from matplotlib.path import Path
 
 from reorient_nii import load as load_orient
 from nilearn.masking import compute_epi_mask, apply_mask
@@ -42,40 +45,73 @@ except:
     dicom2nifti_available = False
 
 from scipy.signal import convolve, argrelmin, argrelmax, find_peaks
-from scipy.linalg import toeplitz
+from scipy.linalg import toeplitz, circulant
 from scipy.stats import pearsonr
 from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter
+from scipy.ndimage import binary_dilation
 
 
 
 from sklearn.linear_model import LinearRegression
 from functools import partial
 
-from nipy.algorithms.registration.groupwise_registration import SpaceRealign, SpaceTimeRealign
+from nipy.algorithms.registration.groupwise_registration import SpaceRealign
 from nilearn.image import resample_to_img
 from sklearn.cluster import KMeans
 import ants
+from tkinter import font
+
+window = Tk()
 
 
 # Platfom specific
 import platform
 if platform.system() == 'Windows':
-    from tkinter.ttk import Button as Button, Label as Label
-    bt_small = 3
+    bt_small =  3
+    bt_font = font.Font(size=8)
+    font.nametofont("TkDefaultFont").configure(family="Arial", size=8)
+    font.nametofont("TkTextFont").configure(family="Arial", size=10)
+    font.nametofont("TkFixedFont").configure(family=".AppleSystemUIFont", size=8)
+    metric_width = 60
+    value_width = 40
+    frame_ui_canvas_width = 400
+    scroll_sensitivity = 120
+    time_map_width = 22
 elif platform.system() == 'Darwin':
     bt_small = 1
+    metric_width = 100
+    value_width = 60
+    bt_font = font.Font(size=13)
+    font.nametofont("TkFixedFont").configure(family=".AppleSystemUIFont", size=13)
+    frame_ui_canvas_width = 600
+    scroll_sensitivity = 1
+    time_map_width = 18
 elif  platform.system() == 'Linux':
     pass
 
+# Useful function for debugging
+def np_info(array):
+    if np.ma.isMaskedArray(array):
+        mask_info = f"mask shape: {array.mask.shape}"
+    else:
+        mask_info = "mask: None"
+    print("type:", type(array))
+    print("shape:", array.shape)
+    print("dtype:", array.dtype)
+    print(mask_info)
+    print("")
 
 # Show/hide overlay ==================================================================================
 # ====================================================================================================
 
 def view_overlay():
-    overlay_names = ['ove4', 'ove5', 'ove6', 'ove1', 'ove1b']
+    update_slice(slice_n.val)
+    overlay_names = ['ove4', 'ove5', 'ove6', 'ove1b']
     visible = chk_map_state.get()
-    
+    for name in overlay_names + ['ove_roi']:
+        if name in globals():
+            print(name, id(globals()[name]))
     for name in overlay_names:
         if name in globals():
             globals()[name].set_visible(visible)
@@ -84,6 +120,7 @@ def view_overlay():
 
 def view_func():
     if chk_func_state.get():
+        update_slice(slice_n.val)
         ove1.set_visible(True)
     else:
         ove1.set_visible(False)
@@ -128,6 +165,38 @@ def autoscale_graph():
         ax3.set_xlim(ax3.get_xlim())  # Set x-axis limits to the stored values
         ax3.set_ylim(ax3.get_ylim())  # Set y-axis limits to the stored values
     plt.draw()
+
+def view_cross():
+    state = chk_cross_state.get()
+    for cross in (cross1, cross2, cross3, cross4):
+        cross[0].set_visible(state)
+        cross[1].set_visible(state)
+    plt.draw()
+
+# These are the name of images in top left corners like (TTP,MTT ... )
+def view_label():
+    state = chk_label_state.get()
+    label1_text.set_visible(state)
+    
+    for txt in ax4.texts:
+        if txt.get_text() == label4:
+            txt.set_visible(state)
+    for txt in ax5.texts:
+        if txt.get_text() == label5:
+            txt.set_visible(state)
+    for txt in ax6.texts:
+        if txt.get_text() == label6:
+            txt.set_visible(state)
+    plt.draw()
+
+
+# Info function
+def write_info(textbox, textinfo, tag="info"):
+    textbox.config(state="normal")
+    textbox.insert("end", textinfo + "\n", tag)
+    textbox.see("end")
+    textbox.config(state="disabled")
+
 
 def convert_func():
     dicom_dir = filedialog.askdirectory(title="Select Directory")
@@ -269,40 +338,60 @@ def load_orient_nifti_afni(fullfile):
             nifti_image = nifti_image.slicer[..., 0]  # Remove the singleton dimension        
     else:
         raise ValueError("Unsupported file format. Only NIfTI and AFNI (.HEAD) files are supported.")
-    
     return nifti_image
 
+
+
+def popup_wait():
+    global popup
+    # Create popup
+    popup = Toplevel(window)
+    popup.title("")
+    Label(popup, text="⏳ Please wait...\n\n🔴 Processing ...",).pack(padx=20, pady=20)
+    popup.geometry("200x100+500+300")
+    popup.transient(window)   # keep on top of main window
+    popup.grab_set()        # block interaction with main window
 
 # Import NIFTI images and initial display
 # ============================================================================================
 def press_load_raw():
-    load_raw()
+    popup_wait()
+    threading.Thread(target=load_raw, daemon=True).start()
+    
 
 #@profile
 def load_raw():
-    global anat,func,func_orig, func_sc, func_mean, aif, data1, brain_ave
+    global anat,func_sc, func_mean, aif, data1, label1_text, brain_ave
     global aff_func_orig, form_code_func_orig
-    global func_mask, func_mask_4d
+    global func_mask, func_mask_4d,func_masked
     global nb_anat, nb_func
     global t, TR
     global aff_anat,aff_func
     global fov_anat, fov_func
     global und1,und4,und5,und6
-    global ove1,ove1b
+    global ove1,ove1b,ove_roi
     global I0,J0,K0,i0,j0,k0
     global min_anat, max_anat
     global text_coord
     global dir_perfmri,dir_preprocess,dir_relative_modfree, dir_relative_gamvar
     global dir_quantitative_decon, dir_quantitative_expon
     global dir_cvr, dir_cvr_svd, dir_cvr_expon
+    global roi_map, ove_roi
 
     # Clean up all previous data
     data_vars = [key for key in globals() if not key.startswith("__") and key not in interface_vars and key != 'interface_vars']
     for key in data_vars:
-        if key != 'anatfullfile' and key != 'funcfullfile':
+        if (key != 'anatfullfile'
+            and key != 'funcfullfile'
+            and key != 'slice_n'
+            and key != 'nb_func_orig'
+            and key != 'popup'
+        ):
             del globals()[key]
     #================================================================
-
+    # A counter for saving the pre-processing steps
+    global pr
+    pr = 0
 
     # Make all the appropriate sub-directories
     dir_perfmri = os.path.join(maindir,'PerfMRI')
@@ -330,30 +419,35 @@ def load_raw():
         text_widget.delete('1.0', END) 
         text_widget.insert('1.0', content)
 
-    
-    
     # Loading datasets
     nb_func_orig = load_orient_nifti_afni(funcfullfile)
     aff_func_orig = nb_func_orig.affine
-    func_orig = nb_func_orig.get_fdata().transpose(1,0,2,3)
-    form_code_func_orig = nb_func_orig.header['sform_code']
+    #form_code_func_orig = nb_func_orig.header['sform_code']
+    form_code_func_orig = 1
 
+    # Deoblique dataset
     nb_func = deoblique_affine(nb_func_orig)
-    func = nb_func.get_fdata().transpose(1,0,2,3)
+    data1 = nb_func.get_fdata().transpose(1,0,2,3)
+    data1 = np.ma.masked_array(data1, mask=np.zeros_like(data1, dtype=bool)) #changeit
     
     # Extract affine and FOV from the deobliqued header
     aff_func = nb_func.affine
     fov_func = calculate_fov(nb_func)
     
+    
 
-    # Make the mean
-    func_mean = np.ma.mean(func,axis=3)
+    # Make the mean and calculate min_func, max_func for display
+    func_mean = np.ma.mean(data1,axis=3)
     min_func, max_func = vminvmax_percentile(func_mean,3,3)
 
     # Initialize the aif array and func_mask
     aif = np.ma.masked_all_like(func_mean)
-    func_mask = np.ones_like(np.mean(func,axis=3),dtype=np.float64)
+    roi_map = np.ma.masked_all_like(func_mean)
+    func_mask = np.ones_like(np.mean(data1,axis=3),dtype=np.float64)
+    func_masked = np.ma.array(data1)
+    
 
+    
     # Import anat and calculate FOV
     # If user does not have an anatomical, use the mean func as anatomical
     if 'anatfullfile' in globals():
@@ -362,48 +456,65 @@ def load_raw():
         if is_oblique(aff_func_orig) or is_oblique(nb_anat_noreg.affine):
             nb_anat_reg = oblique_image_like(nb_func_orig,nb_anat_noreg)
             nb_anat = deoblique_affine(nb_anat_reg)
-            anat = nb_anat.get_fdata().transpose(1,0,2)
+            anat = nb_anat.get_fdata()
+            if anat.ndim == 4:
+                anat = np.mean(anat,axis=3).transpose(1,0,2)
+            else:
+                anat = anat.transpose(1,0,2)
             save2nifti(anat,nb_anat.affine,2,dir_preprocess, 'anat2func.nii.gz')
         else:
             nb_anat = nb_anat_noreg
-            anat = nb_anat.get_fdata().transpose(1,0,2)
+            anat = nb_anat.get_fdata()
+            if anat.ndim == 4:
+                anat = np.mean(anat,axis=3).transpose(1,0,2)
+            else:
+                anat = anat.transpose(1,0,2)
         
-        
+
     else:
         # Use the mean functional as the underlay
-        nb_anat = nb_func.copy()
+        nb_anat = nb_func
         anat = func_mean.copy()
 
-    # Calculate anat FOV
+    # Extract affine and FOV from anat
     aff_anat = nb_anat.affine
     fov_anat = calculate_fov(nb_anat)
     
-    # For color scale
+    # Calculate min_anat, max_anat for color scale
     min_anat, max_anat = vminvmax_percentile(anat,3,3)
 
     # Get the label for the raw functional image displayed in axs1
     basename, _ = os.path.basename(funcfullfile).split(".",1)
-    func_label = basename.upper()
+    label1 = basename.upper()
     
+    # Calculate the approximative center for first display
     I0, J0, K0 = np.array(nb_func.shape[0:3]) // 2
     i0,j0,k0 = ijk_func2anat([I0,J0,K0])
 
     global slice_n
     # Remove the existing slider's axis if it already exists
     if "slice_n" in globals():
+        slice_n.valtext.remove()  # remove the old text
+        slice_n.label.remove()
         slice_n.ax.remove()
         del slice_n
-
+    
     # Now create a new slider
     slider_pos = fig.add_axes([0.97, 0.03, 0.03, 1])
     slice_n = Slider(slider_pos, "Slices", 0, anat.shape[2]-1, valinit=k0, valstep=1,
                     color='darkgrey', orientation='vertical')
-    slice_n.valtext.set_color('white')
+    slice_n.valtext.set_color('red')
     slice_n.valtext.set_fontsize(16)
     slice_n.valtext.set_position((-1, 0))
     slice_n.on_changed(update_slice)
 
-
+    def on_scroll(event):
+        if event.inaxes in [ax1, ax3, ax4, ax5, ax6, slice_n.ax]:
+            s = 1 if event.step < 0 else -1  # Force ±1 step
+            new_val = slice_n.val + s
+            new_val = max(slice_n.valmin, min(slice_n.valmax, new_val))
+            slice_n.set_val(new_val)
+    fig.canvas.mpl_connect('scroll_event', on_scroll)
 
     # Initial displayed slice and time series
     # ===============================================================================================
@@ -415,30 +526,30 @@ def load_raw():
         ax.set_yticks([])
         ax.set_xlim([fov_anat[0], fov_anat[1] + xborder])
 
-    ove1 = ax1.imshow(func[:, :, K0,0],cmap='gist_heat',alpha=0.9,extent=fov_func,zorder=2,vmin=min_func,vmax=max_func)
+    ove1 = ax1.imshow(data1[:, :, K0,0],cmap='gist_heat',alpha=0.7,extent=fov_func,zorder=2,vmin=min_func,vmax=max_func)
     ove1b = ax1.imshow(aif[:, :, K0],cmap='spring',alpha=1,extent=fov_func,zorder=2)
-    ax1.text(0.05, 0.95,func_label, color='white', fontsize=16, ha='left', va='top', transform=ax1.transAxes)
+    label1_text = ax1.text(0.05, 0.95,label1, color='white', fontsize=16, ha='left', va='top', transform=ax1.transAxes)
     ax1.text(0.05, 0.05, 'R', color='white', fontsize=16, ha='left', va='bottom', transform=ax1.transAxes)
     ax1.text(0.95, 0.05, 'L', color='white', fontsize=16, ha='right', va='bottom', transform=ax1.transAxes)
     und1 = ax1.imshow(anat[:, :, k0],cmap='gray',extent=fov_anat,zorder=1,vmin=min_anat,vmax=max_anat)
+    ove_roi = ax4.imshow(roi_map[:, :, K0],cmap=cmap_roi,alpha=1,extent=fov_func,zorder=2,vmin=0.5,vmax=6.5)
     und4 = ax4.imshow(anat[:, :, k0],cmap='gray',extent=fov_anat,zorder=1,vmin=min_anat,vmax=max_anat)
     und5 = ax5.imshow(anat[:, :, k0],cmap='gray',extent=fov_anat,zorder=1,vmin=min_anat,vmax=max_anat)
     und6 = ax6.imshow(anat[:, :, k0],cmap='gray',extent=fov_anat,zorder=1,vmin=min_anat,vmax=max_anat)
     
+    
+
     global cross1, cross2, cross3, cross4
     cross1 = plot_cross(ax1,0,0)
     cross2 = plot_cross(ax5,0,0)
     cross3 = plot_cross(ax6,0,0)
     cross4 = plot_cross(ax4,0,0)
 
-
     # Plot the time series and average brain
     TR = nb_func.header['pixdim'][4]
     # Re-display all
-    resetplot(ax3,func,TR)
+    resetplot(ax3,data1,TR)
    
-
-
     # Set some defaults or suggested values
     sb_fwhm_t.delete(0,END)
     sb_fwhm.delete(0,END)
@@ -446,43 +557,37 @@ def load_raw():
     sb_fwhm_t.insert(0,np.round(1.5*TR,1))
     sb_fwhm.insert(0,np.round(1.5*vox_size,1))
 
-    # Associate func to data1 name to display
-    data1 = func
+    # Fill out the info box with Image parameters 
+    info_txt.config(state="normal")
+    info_txt.delete("1.0","end") # Clean the info text box
+    write_info(info_txt,"Functional scan:",tag="title")
+    write_info(info_txt,f"Voxel size = {np.round(nb_func.header['pixdim'][1:4],2)} mm")
+    write_info(info_txt, f"Matrix = {nb_func.header['dim'][1:4]}")
+    write_info(info_txt, f"#Volumes = {data1.shape[-1]}")
+    write_info(info_txt, f"TR = {TR} s")
+    write_info(info_txt, f"descrip = {nb_func.header['descrip']}")
+    write_info(info_txt,"\n")
+    write_info(info_txt,"Anatomical scan:",tag="title")
+    write_info(info_txt,f"Voxel size = {np.round(nb_anat.header['pixdim'][1:4],2)} mm")
+    write_info(info_txt, f"Matrix = {nb_anat.header['dim'][1:4]}")
+    write_info(info_txt, f"descrip = {nb_anat.header['descrip']}")             
+    write_info(info_txt,"\n")
+    write_info(info_txt,"Pre-processing:",tag="title")
+
     plt.draw()
-
-
+    window.after(0, popup.destroy)
     
 
 
-def mask_brain():
-    global func_mask, data1, pr
-    pr += 1
-    if tkvar_masktype.get() == 'Automask':
-        # Mask FUNC outside the brain and also anywhere there is a func value < 0.
-        nb_func_mask = compute_epi_mask(nb_func,lower_cutoff=0.2,upper_cutoff=0.85,exclude_zeros=True)
-        func_mask = nb_func_mask.get_fdata().transpose(1,0,2) * np.all(func>0.1,axis=3)
-        func_mask_4d = np.repeat(func_mask[..., np.newaxis], func.shape[3], axis=3)
-        data1 = np.ma.masked_where(func_mask_4d == 0, func)
-    elif tkvar_masktype.get() == 'Use Zeros':
-        func_mask = np.mean(data1, axis=3)
-        func_mask = (func_mask != 0).astype(float)
-        func_mask_4d = np.repeat(func_mask[..., np.newaxis], func.shape[3], axis=3)
-        data1 = np.ma.masked_where(func_mask_4d == 0, func)
-    resetplot(ax3,data1,TR)
 
-    # Saving the masked func data
-    save2nifti(data1,aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_msd.nii.gz')
 
-    # Saving the 3D mask
-    pr += 1
-    save2nifti(func_mask,aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_msk.nii.gz')
-    
 def set_vlines():
-
     # Set lines to trim signal.  If dataset is less than 120s, it is likely a DSC file
     # in which case a quick calculation of end of bolus is done.  
     if t[-1] < 120:
         conc = -1*(np.log(data1 / data1[...,[2]]))
+        mask = np.isnan(conc) | np.isinf(conc)
+        conc = np.ma.array(conc, mask=mask)
         conc_ave = np.ma.mean(conc, axis=(0, 1, 2))
         i_end_base, i_end_bolus = find_bolus_lines(conc_ave,TR)
         vline1.set_xdata([TR*2,TR*2])
@@ -492,25 +597,35 @@ def set_vlines():
         vline2.set_xdata([t[-1],t[-1]])
     plt.draw()
 
-def trim_signal():
-    global data1, pr
+def press_trim_signal():
+    popup_wait()
+    threading.Thread(target=trim_signal, daemon=True).start()
+
+
+def trim_signal():   
+    global data1, pr,i_start, i_end_bolus
     pr += 1
-    i1 = round(vline1.get_xdata()[0]/TR)
-    i1 = np.max(i1,0)
+    i_start = round(vline1.get_xdata()[0]/TR)
+    i_start = np.max(i_start,0)
     
-    i2 = round(vline2.get_xdata()[0]/TR)
-    i2 = np.min([i2,data1.shape[-1]])
-    data1 = data1[...,i1:i2]
+    i_end_bolus = round(vline2.get_xdata()[0]/TR)
+    i_end_bolus = np.min([i_end_bolus,data1.shape[-1]])
+    n_end_vol = data1.shape[-1] - i_end_bolus - 1
+    data1 = data1[...,i_start:i_end_bolus+1]
     
     
     # Re-display all
     resetplot(ax3,data1,TR)
-
+    
+    window.after(0, popup.destroy)
     # Now place again the vlines
     vline1.set_xdata([0,0])
-    vline2.set_xdata([t[-1]+TR,t[-1]+TR])
-    plt.draw()
+    vline2.set_xdata([2*TR,2*TR]) 
+    plt.draw()  
+    window.after(0, popup.destroy)
     save2nifti(data1,aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_tri.nii.gz')
+    write_info(info_txt, f"Trim Signal: Removed {i_start} vol from start, {n_end_vol} from end")  
+
 
 def on_slicetime_change(*args):
     global slicetime_acq_file
@@ -520,29 +635,34 @@ def on_slicetime_change(*args):
 
 # Time Realign  / Slice time correction
 def press_time_realign():
+    popup_wait()
+    threading.Thread(target=time_realign, daemon=True).start()
+
+def time_realign():
     global data1, pr
     pr += 1
 
     if tkvar_slicetime.get() == "Text file...":
         sliceAcquisitionTime = np.loadtxt(slicetime_acq_file)
-        data1 = time_realign(data1,sliceAcquisitionTime,TR)
+        data1 = time_realign_calc(data1,sliceAcquisitionTime,TR)
 
     if tkvar_slicetime.get() == "Sequential+":
         nsl = data1.shape[2]
         sliceAcquisitionTime = np.arange(0, TR, TR/nsl)
-        data1 = time_realign(data1,sliceAcquisitionTime,TR)
+        data1 = time_realign_calc(data1,sliceAcquisitionTime,TR)
    
 
     if tkvar_slicetime.get() == "Alternative+":
         nsl = data1.shape[2]
         sliceAcquisitionTime = mri_interleave(nsl,TR)
-        data1 = time_realign(data1,sliceAcquisitionTime,TR)
+        data1 = time_realign_calc(data1,sliceAcquisitionTime,TR)
 
     resetplot(ax3,data1,TR)
     
+    plt.draw()
+    window.after(0, popup.destroy)
     save2nifti(data1,aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_tre.nii.gz')
-
-
+    write_info(info_txt, f"Slice Time corrected")
 
 def mri_interleave(nz,TR):
     dt = TR/nz 
@@ -555,65 +675,255 @@ def mri_interleave(nz,TR):
     interleaved = interleaved[0:nz]
     return interleaved
 
-def time_realign(fMRI, sliceAcquisitionTime, TR):
+def time_realign_calc(fMRI, sliceAcquisitionTime, TR):
     ni, nj, nk, nt = fMRI.shape
     fMRI_shifted = np.ma.zeros_like(fMRI)
     expected_times = np.arange(0, nt * TR, TR)  # 1D array
+    opts = read_advanced_options()
+    slice_time_interp = opts['slice_time_interp']
 
     for k in range(nk):
         real_times = expected_times + sliceAcquisitionTime[k]  
         # Interpolation along axis=2 (time axis)
-        fs = interp1d(real_times, fMRI[:, :, k, :], kind='cubic', bounds_error=False,
+        fs = interp1d(real_times, fMRI[:, :, k, :], kind=slice_time_interp, bounds_error=False,
                       fill_value=(fMRI[:, :, k, 0], fMRI[:, :, k, -1]), axis=2)
         fMRI_shifted[:, :, k, :] = fs(expected_times)  
-    
-    return np.ma.masked_array(fMRI_shifted, mask=np.ma.getmask(fMRI))
+    return fMRI_shifted
 
+
+def on_correct_time_change(*args):
+    global slicetime_acq_file
+    if tkvar_correct_time.get() == "Text file...":
+        slicetime_acq_file = filedialog.askopenfilename(initialdir=maindir,title="Select timing file...")
+        window.focus_force()
+
+def press_correct_time():
+    global data1, pr
+    global data5,ove5,und5,mapval5,label5
+    global data6,ove6,und6,mapval6,label6
+    pr += 1
+
+
+    name_t_metrics = ['bat','ttp','rttp','fm']
+    t_metrics = []
+    for m in name_t_metrics:
+        _, tmp, affine = load_nifti(dir_relative_modfree, m+'.nii.gz')
+        t_metrics.append(tmp)
+    t_metrics = np.stack(t_metrics, axis=-1)  # (Nx, Ny, Nz, Nmetrics)
+
+
+    if tkvar_correct_time.get() == "Text file...":
+        sliceAcquisitionTime = np.loadtxt(slicetime_acq_file)
+        sliceAcquisitionTime = sliceAcquisitionTime.reshape(1, 1, -1, 1)
+        t_metrics_corrected = t_metrics + sliceAcquisitionTime
+
+    if tkvar_correct_time.get() == "Sequential+":
+        nsl = data1.shape[2]
+        sliceAcquisitionTime = np.arange(0, TR, TR/nsl)
+        sliceAcquisitionTime = sliceAcquisitionTime.reshape(1, 1, -1, 1)
+        t_metrics_corrected = t_metrics + sliceAcquisitionTime
+   
+    if tkvar_correct_time.get() == "Alternative+":
+        nsl = data1.shape[2]
+        sliceAcquisitionTime = mri_interleave(nsl,TR)
+        sliceAcquisitionTime = sliceAcquisitionTime.reshape(1, 1, -1, 1)
+        t_metrics_corrected = t_metrics + sliceAcquisitionTime
+
+    for i, m in enumerate(name_t_metrics):
+        corrected_metric = t_metrics_corrected[..., i]  # (Nx, Ny, Nz)
+        corrected_metric = np.ma.masked_where(func_mask==0,corrected_metric)
+        save2nifti(corrected_metric,aff_func_orig,form_code_func_orig,dir_relative_modfree,f"{m}_stc.nii.gz")
+
+    ttp_corr = np.ma.masked_where(func_mask==0,t_metrics_corrected[...,1])
+    label5 = 'TTP_STC'
+    data5,ove5,und5,mapval5 = show_map(ax5,ttp_corr,label5,'viridis',5,5,anat) 
+    
+    bat_corr = np.ma.masked_where(func_mask==0,t_metrics_corrected[...,0])
+    label6 = 'BAT_STC'
+    data6,ove6,und6,mapval6 = show_map(ax6,bat_corr,label6,'viridis',5,5,anat) 
+    
+    plt.draw()
 
 def press_space_realign():
-    space_realign()
+    popup_wait()
+    opts = read_advanced_options()
+    if opts['reg_afni'] == "yes":
+        threading.Thread(target=afni_space_realign, daemon=True).start()
+    else:
+        threading.Thread(target=nipy_space_realign, daemon=True).start()
 
-def space_realign():
+
+
+def afni_space_realign():
+    """
+    Run AFNI 3dvolreg and return motion parameters as numpy array.
+    """
+    global data1, pr
+    pr += 1
+    save2nifti(data1,aff_func_orig,form_code_func_orig, dir_preprocess, 'tobe_reg.nii.gz')
+    infile = os.path.join(dir_preprocess,'tobe_reg.nii.gz')
+    outfile = os.path.join(dir_preprocess,f'func_{pr:02d}_vre.nii.gz')
+    param_file = os.path.join(dir_preprocess,'param_mot.1D')
+    
+    cmd = [
+        "3dvolreg",
+        "-clipit",
+        "-prefix", outfile,
+        "-1Dfile", param_file,
+        infile
+    ]
+
+    # Run AFNI
+    subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    nb_data , data, label = load_nifti(dir_preprocess,f'func_{pr:02d}_vre.nii.gz')
+    data1 = np.ma.masked_array(data,mask=data1.mask)
+    resetplot(ax3,data1,TR)
+    os.remove(infile)
+    write_info(info_txt, f"Volume re-registration using AFNI 3dvolreg")
+    window.after(0, popup.destroy)
+
+def nipy_space_realign():
     global data1, pr
     pr += 1
     
     nb_data1 = nb.Nifti1Image(data1,aff_func)
     realigner = SpaceRealign(images=nb_data1)
     realigner.estimate(
+        refscan=0, 
         speedup=8,         # Higher value for faster but lower resolution alignment
         stepsize=1e-4,     # Larger step size for faster convergence
-        optimizer='powell',# Tried a faster optimizer (Powell method)
-        xtol=1e-2,         # Increase tolerance for faster termination
-        ftol=1e-2,
-        gtol=1e-2,
+        optimizer='powell', # Tried a faster optimizer (Powell method)
+        gtol=1e-5,
         maxiter=23         # Reduce the maximum number of iterations
     )
-    nb_data1_reg = realigner.resample(0)
-    data1 = nb_data1_reg.get_fdata()  # Extract data
-    data1 = mask_4d_from_3d(func_mask==0,data1)
-    
+
+    nb_data_reg = realigner.resample(0) #changeit
+    data1 = np.ma.masked_array(nb_data_reg.get_fdata(),mask=data1.mask)  # Extract data 
+
     # Re-display all
     resetplot(ax3,data1,TR)
+
+    regs = realigner._transforms
+    params = []  # start with a list
+    # assuming tr[0] contains all volumes for your run
+    for reg in regs[0]:
+        # concatenate translation and rotation
+        line = np.concatenate([np.degrees(reg.rotation),reg.translation])
+        params.append(line)
+
+    # convert to numpy array
+    params = np.vstack(params)  # shape = (n_volumes, 6)
+    np.savetxt(os.path.join(dir_preprocess,"param_mot.1D"), params, fmt="%.6f")
+
+    write_info(info_txt, f"Volume re-registration using NIPY")
+    window.after(0, popup.destroy)
     save2nifti(data1, aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_vre.nii.gz')
+   
+
+def press_view_motion():
+    # Create a new top-level window
+    mot_window = Toplevel()
+    mot_window.title("Motion Parameters")
+    mot_window.configure(bg='black')  # optional
+
+    # Load motion parameters
+    mot_param = np.loadtxt(os.path.join(dir_preprocess, "param_mot.1D"))
+    Trep = globals().get("TR", 1)
+    ti = Trep * np.arange(mot_param.shape[0])
+
+    # Create the figure (no plt.figure)
+    motfig = Figure(figsize=(14, 7), facecolor='black')
+    ax_mot = motfig.add_subplot(111)
+    ax_mot.set_facecolor('black')
+    ax_mot.grid(True, which='both', linestyle='--', linewidth=0.5, color='gray')
+
+    #for spine in ax_mot.spines.values():
+    #    spine.set_visible(False)
+
+    ax_mot.set_ylim(-2, 2)
+    ax_mot.plot(ti, mot_param)
+    ax_mot.set_title("Motion Parameters", color='white')
+    ax_mot.set_xlabel(f"Time (s) with TR = {Trep}s", color='white')
+    ax_mot.tick_params(colors='white')
+
+    motfig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+
+    # Embed the figure in the Toplevel
+    canvas = FigureCanvasTkAgg(motfig, master=mot_window)
+    canvas.draw()
+    canvas.get_tk_widget().pack(fill='both', expand=True)
+
+    # Optional: handle closing of Toplevel window
+    def on_close():
+        canvas.get_tk_widget().destroy()
+        mot_window.destroy()
+    mot_window.protocol("WM_DELETE_WINDOW", on_close)
+
+def press_mask_brain():
+    popup_wait()
+    threading.Thread(target=mask_brain, daemon=True).start()
+
+def mask_brain():
+    global func_mask,func_masked, data1, pr
+    pr += 1
+
+    if tkvar_masktype.get() == 'Automask':
+        # Mask data1 outside the brain.
+        nb_func_mask = compute_epi_mask(nb_func,lower_cutoff=0.1,upper_cutoff=0.9,exclude_zeros=False,opening=False)
+        func_mask = nb_func_mask.get_fdata().transpose(1,0,2)
+
+        #Dilate anatomical mask
+        opts = read_advanced_options()
+        d = int(opts['dil_mask'])
+        if d > 0:
+            func_mask = binary_dilation(func_mask, iterations=d).astype(int)
+
+        # Now enforce functional constraint: all timepoints > 0.1
+        func_mask = func_mask * np.all(data1 > 0.1, axis=3)
+        func_mask_4d = np.repeat(func_mask[..., np.newaxis], data1.shape[3], axis=3)
+        data1 = np.ma.masked_where(func_mask_4d == 0, data1)
+        
+
+    elif tkvar_masktype.get() == 'Use Zeros':
+        func_mask = np.mean(data1, axis=3)
+        func_mask = (func_mask != 0).astype(float)
+        func_mask_4d = np.repeat(func_mask[..., np.newaxis], data1.shape[3], axis=3)
+        data1 = np.ma.masked_where(func_mask_4d == 0,data1)
+
+
+    resetplot(ax3,data1,TR)
+    window.after(0, popup.destroy)
+
+    # Saving the masked func data
+    save2nifti(data1,aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_msd.nii.gz')
+
+    # Saving the 3D mask
+    pr += 1
+    save2nifti(func_mask,aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_msk.nii.gz')
+    write_info(info_txt, f"Brain masked")
 
 
 def press_detrend_signal():
+    popup_wait()
+    threading.Thread(target=detrend_signal, daemon=True).start()
+
+def detrend_signal():
     """
-    Detrend the signal in the 4D array by removing a polynomial trend up to degree `polort`.
+    Detrend the signal in the 4D array by removing a polynomial trend up to degree `pol_deg`.
     """
     global data1, pr
     pr += 1
     p = int(tkvar_poly.get())
-    data1 = detrend_signal(data1,TR,func_mask,p)
-    
+    data1 = detrend_signal_calc(data1,TR,p)
     # Re-display all
     resetplot(ax3,data1,TR)
+    window.after(0, popup.destroy)
     save2nifti(data1, aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_dtr.nii.gz')
-
+    write_info(info_txt, f"Signal detrended (polynomial degree = {p})")
     
-def detrend_signal(array_4d, TR, mask, polort):
+def detrend_signal_calc(array_4d, TR, pol_deg):
     """
-    Detrend the signal in a 4D array by removing a polynomial trend up to degree `polort`.
+    Detrend the signal in a 4D array by removing a polynomial trend up to degree `pol_deg`.
     
     Parameters:
     - array_4d: np.ndarray
@@ -622,7 +932,7 @@ def detrend_signal(array_4d, TR, mask, polort):
         Repetition time (time between consecutive scans).
     - mask: np.ndarray
         3D mask array (ni, nj, nk), where non-zero values indicate voxels to detrend.
-    - polort: int, optional (default=1)
+    - pol_deg: int, optional (default=1)
         Degree of the polynomial trend to remove (0 = constant, 1 = linear, etc.).
 
     Returns:
@@ -633,7 +943,7 @@ def detrend_signal(array_4d, TR, mask, polort):
     ni, nj, nk, nt = array_4d.shape
     
     # Flatten mask and find indices of non-zero voxels
-    mask_flat = mask != 0
+    mask_flat = ~np.ma.getmaskarray(array_4d[...,-1])
     num_voxels = np.sum(mask_flat)
     
     # Reshape the 4D array into a 2D array (num_voxels, nt) for regression
@@ -643,8 +953,8 @@ def detrend_signal(array_4d, TR, mask, polort):
     t = TR * np.arange(nt)
 
     # Construct the polynomial design matrix X
-    X = np.ones((nt, 1))  # Start with constant term (polort=0)
-    for p in range(1, polort + 1):
+    X = np.ones((nt, 1))  # Start with constant term (pol_deg=0)
+    for p in range(1, pol_deg + 1):
         X = np.column_stack((X, t**p))  # Add higher polynomial terms
 
     # Perform the linear regression for all voxels
@@ -662,52 +972,88 @@ def detrend_signal(array_4d, TR, mask, polort):
 
 
 def press_scale_signal():
-    scale_signal()
+    popup_wait()
+    threading.Thread(target=scale_signal, daemon=True).start()
 
 def scale_signal():
-    global func,data1,nt,t,line_brain_ave,line_aif_ave, pr
+    global data1,nt,t,line_brain_ave,line_aif_ave, pr,i_start_base, i_end_base
     pr += 1
     
-    TR = nb_func.header['pixdim'][4]
-
     i1 = round(vline1.get_xdata()[0]/TR)
     i1 = np.max(i1,0)
     
     i2 = round(vline2.get_xdata()[0]/TR)
     i2 = np.max([i2,0])
+    
     if tkvar_imtype.get()=="Concentration":
         data1_base = np.ma.mean(data1[...,i1:i2+1],axis=3)
         data1_sc_base = data1 / data1_base[..., np.newaxis]
-        data1 = -1*(np.ma.log(data1_sc_base))
+        data1 = -(np.ma.log(data1_sc_base))
         ax3_ylabel = "Concentration"
+        write_info(info_txt, f"Signal scale: C = -log(S/S0) , S0 = mean(S[{i1}:{i2}])")
+    
     elif tkvar_imtype.get()=="% baseline":
         # Scale to baseline
         data1_base = np.ma.mean(data1[:,:,:,i1:i2+1],axis=3)
         data1_sc_base = data1 / data1_base[..., np.newaxis]
         data1 = 100*(data1_sc_base - 1)
-        ax3_ylabel = "BOLD(%)"
+        ax3_ylabel = "BOLD[%]"
+        write_info(info_txt, f"Signal scale: Sc = 100x(S-S0)/S0 , S0 = mean(S[{i1}:{i2}])")
+        
     elif tkvar_imtype.get()=="% mean":
         # Scale to the mean
         data1_mean = np.ma.mean(data1,axis=3)
         data1_sc_mean = data1 / data1_mean[..., np.newaxis]
         data1 = 100*(data1_sc_mean - 1)
-        ax3_ylabel = "BOLD(%)"
+        ax3_ylabel = "BOLD[%]"
+        write_info(info_txt, f"Signal scale: Sc = 100x(S-S0)/S0 , S0 = mean(S)")
+
+    elif tkvar_imtype.get()=="% Percentile":
+        # Scale to the mean
+        opts = read_advanced_options()
+        p = float(opts['scale_percentile'])
+        data1_mean = np.nanpercentile(data1.filled(np.nan),p,axis=3)
+        data1_sc_mean = data1 / data1_mean[..., np.newaxis]
+        data1 = 100*(data1_sc_mean - 1)
+        ax3_ylabel = "BOLD[%]"
+        write_info(info_txt, f"Signal scale: Sc = 100x(S-S0)/S0 , S0: P-th percentile")
     
     # Plot the time series and average brain
     resetplot(ax3,data1,TR)
-
     # Place again the vlines in a sensible place
     vline1.set_xdata([0,0])
     vline2.set_xdata([t[1],t[1]])
     ax3.text(0.05, 0.95,ax3_ylabel, color='white',transform=ax3.transAxes, fontsize=12,verticalalignment='top', horizontalalignment='left')
+    window.after(0, popup.destroy)
     save2nifti(data1, aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_scl.nii.gz')
+    
 
-
+    # Calculating SR and PSR
+    if tkvar_imtype.get()=="Concentration":
+        i_start_base = i_start + i1 # i_start_base is relative to the original time series before the trimming
+        i_end_base = i_start + i2 # i_end_base is relative to the original time series before the trimming
+        Spre = np.ma.mean(func_masked[:,:,:,i_start_base:i_end_base+1],axis=3)
+        Spre = np.ma.array(Spre,mask=data1.mask[...,0])
+        Spost = np.ma.mean(func_masked[:,:,:,i_end_bolus:-1],axis=3)
+        Spost = np.ma.array(Spost,mask=data1.mask[...,0])
+        Smin = np.ma.min(func_masked[:,:,:,i_end_base:i_end_bolus],axis=3)
+        Smin = np.ma.array(Smin,mask=data1.mask[...,0])
+        SR = 100*(Spost-Spre)/Spre
+        PSR = 100*(Spost-Smin)/(Spre-Smin)
+        os.makedirs(dir_relative_modfree, exist_ok=True)
+        save2nifti(SR, aff_func_orig,form_code_func_orig, dir_relative_modfree, 'sr.nii.gz')
+        save2nifti(PSR, aff_func_orig,form_code_func_orig, dir_relative_modfree, 'psr.nii.gz')
 
 def press_spatial_smoothing():
+    popup_wait()
+    threading.Thread(target=spatial_smoothing, daemon=True).start()
+
+
+
+def spatial_smoothing():
     global data1, pr
     pr += 1
-
+    
     # Parameters for Gaussian smoothing
     fwhm = float(sb_fwhm.get())
     fwhm_x = (1/2.333) * fwhm / nb_func.header['pixdim'][1]
@@ -715,26 +1061,35 @@ def press_spatial_smoothing():
     fwhm_z = (1/2.333) * fwhm / nb_func.header['pixdim'][3]
 
     smoothed_data = gaussian_filter(np.ma.filled(data1,0),sigma = (fwhm_x,fwhm_y,fwhm_z,0))
-    smoothed_mask = gaussian_filter(np.repeat(func_mask[...,np.newaxis],data1.shape[3],axis=3),sigma = (fwhm_x,fwhm_y,fwhm_z,0)) 
+    mask4d = (~data1.mask).astype(float)
+    smoothed_mask = gaussian_filter(mask4d,sigma = (fwhm_x,fwhm_y,fwhm_z,0)) 
     data1 = np.ma.array(smoothed_data / smoothed_mask,mask=data1.mask)
+    
     # Plot the time series and average brain
     resetplot(ax3,data1,TR)
+    window.after(0, popup.destroy)
     save2nifti(data1, aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_ssm.nii.gz')
-
+    write_info(info_txt, f"Spatial smoothing: FWHM = {fwhm} mm ")
 
 def press_temporal_smoothing():
+    popup_wait()
+    threading.Thread(target=temporal_smoothing, daemon=True).start()
+
+def temporal_smoothing():
     global data1, pr
     pr += 1
     # Parameters for Gaussian smoothing
     fwhm_t = float(sb_fwhm_t.get())
-    fwhm_t = (1/2.333) * fwhm_t / nb_func.header['pixdim'][4]
+    fwhm_t_sig = (1/2.333) * fwhm_t / TR
 
-    smoothed_data = gaussian_filter(data1,sigma = (0,0,0,fwhm_t))
+    smoothed_data = gaussian_filter(data1,sigma = (0,0,0,fwhm_t_sig))
     data1 = np.ma.array(smoothed_data,mask=data1.mask)
     
     # Plot the time series and average brain
     resetplot(ax3,data1,TR)
+    window.after(0, popup.destroy)
     save2nifti(data1, aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_tsm.nii.gz')
+    write_info(info_txt, f"Temporal smoothing: FWHM = {fwhm_t} s ")
 
 
 # Make the xticks and yticks inside the graph and set their color to none.
@@ -764,7 +1119,7 @@ def only_keep_lines(ax,list_lines):
         if line not in list_lines:
             line.remove()
         
-def resetplot(axs,data1,TR):
+def resetplot(axs,data,TR):
     global line_current,line_brain_ave,brain_ave,t,line_cvr_ref,text_coord
     global line_aif_ave
     global vline1, vline2
@@ -780,33 +1135,32 @@ def resetplot(axs,data1,TR):
     vline, text, cid = on_move_time_set(axs)
 
      
-    nt = data1.shape[3]
+    nt = data.shape[3]
     t = TR*np.arange(0,nt)
-    line_current, = axs.plot(t,data1[I0,J0,K0,:],'w:',marker='.', markerfacecolor='none', markeredgecolor='none',zorder=500)
-
-    if 'func_mask' in globals():
-        brain_ave = mask_average(data1,func_mask)
-        np.savetxt(os.path.join(dir_perfmri,'brain_ave.1D'),np.array(brain_ave).transpose())
-        line_brain_ave, = axs.plot(t, brain_ave, color='#00FF00', linestyle='-', linewidth=8, alpha=0.5, zorder=600)
+    line_current, = axs.plot(t,data[I0,J0,K0,:],'w:',marker='.', markerfacecolor='none', markeredgecolor='none',zorder=500)
+    brain_ave = np.ma.mean(data,axis=(0,1,2))
+    np.savetxt(os.path.join(dir_perfmri,'brain_ave.1D'),np.array(brain_ave).transpose())
+    line_brain_ave, = axs.plot(t, brain_ave, color='#00FF00', linestyle='-', linewidth=8, alpha=0.5, zorder=600,marker='.', markerfacecolor='red', markeredgecolor='none')
     
-    # Re-display data1
-    # Display data1 
-    data1_mean = np.ma.mean(data1,axis=3)
-    min_data1, max_data1 = vminvmax_percentile(data1_mean,3,3)
+    
+    # Re-display data
+    # Display data 
+    data_mean = np.ma.mean(data,axis=3)
+    min_data, max_data = vminvmax_percentile(data_mean,3,3)
     _, _, K = ijk_anat2func([0, 0, slice_n.val]) 
-    ove1.set_data(data1_mean[:,:,K])
-    ove1.set_clim(vmin=min_data1, vmax=max_data1)
+    ove1.set_data(data_mean[:,:,K])
+    ove1.set_clim(vmin=min_data, vmax=max_data)
 
 
     # Re-plot the aif lines and its average based on aif mask
     ii,jj,kk = np.where(~aif.mask)
     for i, j, k in zip(ii, jj, kk):
-        # Plot the time series of data1 at coordinate (i, j, k)
+        # Plot the time series of data at coordinate (i, j, k)
         key = f"{i}_{j}_{k}"
-        l = ax3.plot(t,data1[i, j, k, :],picker=True, pickradius=3)
+        l = ax3.plot(t,data[i, j, k, :],picker=True, pickradius=3)
         ijk_lines.append([key, l[0]])  # Append the key and plot object pair to the ijk_lines list
     
-    aif_ave = mask_average(data1,aif)    
+    aif_ave = mask_average(data,aif)    
     line_aif_ave, = ax3.plot(t,aif_ave, color='#FF00FF', linestyle='-', linewidth=8, alpha=0.4, zorder=600)
     line_aif_ave.set_visible(chk_ave_aif_state.get())
     
@@ -992,6 +1346,220 @@ def bolus_times_3d(array_4d, TR, mask, perc):
     ip2 = np.ma.filled(ip2,nt-1)
     
     
+    
+
+    
+    # Get the index array for voxels
+    vi = np.arange(bolus_curves.shape[0])  
+    
+    ip1_next = np.ma.where(ip1 + 1 < nt - 1, ip1 + 1, nt - 1)
+    H1 = np.ma.array(bolus_curves[vi, ip1_next] - bolus_curves[vi, ip1])
+    h1 = np.maximum(threshold[vi, 0] - bolus_curves[vi,ip1],0) # bolus_curves of ip1=0 could be above threshold (whereas it should be under) ... in this case, h1 is set to 0
+    R1 = np.where(H1 == 0, 0.5, h1 / H1)  # Element-wise operation
+    
+    ip2_next = np.where(ip2 + 1 < nt - 1, ip2 + 1, nt - 1)
+    H2 = np.ma.array(bolus_curves[vi,ip2] - bolus_curves[vi,ip2_next])
+    h2 = bolus_curves[vi,ip2] - threshold[vi, 0]
+    R2 = np.where(H2 == 0, 0.5, h2 / H2)  # Element-wise operation
+
+    # Apply Thales theorem to compute the fractional time adjustment and add it to ip1/ip2
+    t1 =  TR * (ip1 + R1)
+    t1[i_max.flatten() == 0] = TR/10000  # voxels where max is first frame, set to ~ 0
+    t2 =  TR * (ip2 + R2)
+    
+    # Reshape t1 and t2 back to 3D
+    t1_3d = np.zeros(mask.shape)
+    t2_3d = np.zeros(mask.shape)
+
+    # Fill in the voxels for which the mask is not zero
+    t1_3d[mask != 0] = t1
+    t2_3d[mask != 0] = t2
+    
+    
+    # target = np.array([26, 48, 18])
+    # vox_n = np.where(np.all(voxels == target, axis=1))[0][0]
+    # print("LLLLLLLLLLLLLLL" ,t1[vox_n],ip1[vox_n],ip1_next[vox_n],H1[vox_n],h1[vox_n],R1[vox_n])
+
+
+    return np.ma.masked_array(t1_3d, mask=(mask == 0)), np.ma.masked_array(t2_3d, mask=(mask == 0))
+
+
+def bolus_times_3d_good(array_4d, TR, mask, perc):
+    """
+    Vectorized calculation of t1 and t2 times for the bolus curve for each voxel in the 4D array.
+    
+    Parameters:
+    array_4d : np.ndarray
+        A 4D array (ni, nj, nk, nt) representing the data.
+    mask : np.ndarray
+        A 3D array (ni, nj, nk) representing the mask (non-zero values for valid voxels).
+    TR : float
+        The repetition time (TR).
+    perc : float
+        The percentage of the maximum bolus value used to define the threshold.
+        
+    Returns:
+    t1_3d : np.ma.MaskedArray
+        The t1 times for each voxel.
+    t2_3d : np.ma.MaskedArray
+        The t2 times for each voxel.
+    """
+    
+    # Get the shape of the 4D array
+    ni, nj, nk, nt = array_4d.shape
+
+    # Identify the voxels within the mask (non-zero mask values)
+    voxels = np.argwhere(mask != 0)  # List of (i, j, k) indices
+    num_voxels = voxels.shape[0]
+
+    # Reshape the 4D array into a 2D array for processing (voxel, time)
+    bolus_curves = array_4d[mask != 0, :]  # Shape: (num_voxels, nt)
+
+    # Find the index of the maximum for each voxel (voxel-wise argmax)
+    i_max = np.argmax(bolus_curves, axis=1)  # Shape: (num_voxels,)
+    i_max = i_max[:, np.newaxis]  # Shape: (num_voxels, 1)
+
+    # Find the maximum value for each voxel
+    v_max = np.max(bolus_curves, axis=1)
+    v_max = v_max[:, np.newaxis]  # Shape: (num_voxels, 1)
+
+    # Calculate the threshold for each voxel
+    threshold = v_max * perc / 100  # Shape: (num_voxels, 1)
+    threshold = np.repeat(threshold, nt, axis=1)  # Shape: (num_voxels, nt)    
+
+    # Compute the difference with the threshold
+    step = np.where(bolus_curves > threshold, 1, -1) # Shape: (num_voxels, nt)
+    diff_step = step[:,1:] - step[:,:-1]
+    diff_step_mask = (diff_step == 0) # Shape: (num_voxels, nt-1)
+    diff_step_mask = np.concatenate([diff_step_mask,np.ones((num_voxels, 1), dtype=bool)], axis=1)  # Shape: (num_voxels, nt)
+   
+
+    # Create masks before and after the max for each voxel (broadcast i_max)
+    mask_before_max = np.arange(nt)[np.newaxis, :] < i_max  # Shape: (num_voxels, nt)
+    mask_after_max = np.arange(nt)[np.newaxis, :] >= i_max  # Shape: (num_voxels, nt)
+
+
+
+    nt_indices = np.tile(np.arange(nt), (num_voxels, 1)) # Shape: (num_voxels, nt)
+    
+
+    mask1 = np.logical_or(diff_step_mask, mask_after_max)
+    mask2 = np.logical_or(diff_step_mask, mask_before_max)
+    
+   
+
+    nt_indices_masked_after_max = np.ma.masked_array(nt_indices,mask=mask1) # Shape: (num_voxels, nt)
+    nt_indices_masked_before_max = np.ma.masked_array(nt_indices,mask=mask2) # Shape: (num_voxels, nt)
+
+    # Find the closest points to the threshold (argmin on absolute differences)
+    ip1 = np.ma.max(nt_indices_masked_after_max, axis=1) # Shape: (num_voxels,)
+    ip1 = np.ma.filled(ip1,0)
+    ip2 = np.ma.min(nt_indices_masked_before_max, axis=1) # Shape: (num_voxels,)
+    ip2 = np.ma.filled(ip2,nt-1)
+    
+    
+    # Get the index array for voxels
+    vi = np.arange(bolus_curves.shape[0])  
+    
+    ip1_next = np.ma.where(ip1 + 1 < nt - 1, ip1 + 1, nt - 1)
+    H1 = np.ma.array(bolus_curves[vi, ip1_next] - bolus_curves[vi, ip1])
+    h1 = threshold[vi, 0] - bolus_curves[vi,ip1]
+    R1 = np.where(H1 == 0, 0.5, h1 / H1)  # Element-wise operation
+    
+    ip2_next = np.where(ip2 + 1 < nt - 1, ip2 + 1, nt - 1)
+    H2 = np.ma.array(bolus_curves[vi,ip2] - bolus_curves[vi,ip2_next])
+    h2 = bolus_curves[vi,ip2] - threshold[vi, 0]
+    R2 = np.where(H2 == 0, 0.5, h2 / H2)  # Element-wise operation
+
+    # Apply Thales theorem to compute the fractional time adjustment and add it to ip1/ip2
+    t1 =  TR * (ip1 + R1)
+    t1[i_max.flatten() == 0] = 0.0  # voxels where max is first frame]
+    t2 =  TR * (ip2 + R2)
+    
+    # Reshape t1 and t2 back to 3D
+    t1_3d = np.zeros(mask.shape)
+    t2_3d = np.zeros(mask.shape)
+
+    # Fill in the voxels for which the mask is not zero
+    t1_3d[mask != 0] = t1
+    t2_3d[mask != 0] = t2
+    
+
+    return np.ma.masked_array(t1_3d, mask=(mask == 0)), np.ma.masked_array(t2_3d, mask=(mask == 0))
+
+def bolus_times_3d_old(array_4d, TR, mask, perc):
+    """
+    Vectorized calculation of t1 and t2 times for the bolus curve for each voxel in the 4D array.
+    
+    Parameters:
+    array_4d : np.ndarray
+        A 4D array (ni, nj, nk, nt) representing the data.
+    mask : np.ndarray
+        A 3D array (ni, nj, nk) representing the mask (non-zero values for valid voxels).
+    TR : float
+        The repetition time (TR).
+    perc : float
+        The percentage of the maximum bolus value used to define the threshold.
+        
+    Returns:
+    t1_3d : np.ma.MaskedArray
+        The t1 times for each voxel.
+    t2_3d : np.ma.MaskedArray
+        The t2 times for each voxel.
+    """
+    
+    # Get the shape of the 4D array
+    ni, nj, nk, nt = array_4d.shape
+
+    # Identify the voxels within the mask (non-zero mask values)
+    voxels = np.argwhere(mask != 0)  # List of (i, j, k) indices
+    num_voxels = voxels.shape[0]
+
+    # Reshape the 4D array into a 2D array for processing (voxel, time)
+    bolus_curves = array_4d[mask != 0, :]  # Shape: (num_voxels, nt)
+
+    # Find the index of the maximum for each voxel (voxel-wise argmax)
+    i_max = np.argmax(bolus_curves, axis=1)  # Shape: (num_voxels,)
+    i_max = i_max[:, np.newaxis]  # Shape: (num_voxels, 1)
+
+    # Find the maximum value for each voxel
+    v_max = np.max(bolus_curves, axis=1)
+    v_max = v_max[:, np.newaxis]  # Shape: (num_voxels, 1)
+
+    # Calculate the threshold for each voxel
+    threshold = v_max * perc / 100  # Shape: (num_voxels, 1)
+    threshold = np.repeat(threshold, nt, axis=1)  # Shape: (num_voxels, nt)    
+
+    # Compute the difference with the threshold
+    step = np.where(bolus_curves > threshold, 1, -1) # Shape: (num_voxels, nt)
+    diff_step = step[:,1:] - step[:,:-1]
+    diff_step_mask = (diff_step == 0) # Shape: (num_voxels, nt-1)
+    diff_step_mask = np.concatenate([diff_step_mask,np.ones((num_voxels, 1), dtype=bool)], axis=1)  # Shape: (num_voxels, nt)
+   
+
+    # Create masks before and after the max for each voxel (broadcast i_max)
+    mask_before_max = np.arange(nt)[np.newaxis, :] < i_max  # Shape: (num_voxels, nt)
+    mask_after_max = np.arange(nt)[np.newaxis, :] >= i_max  # Shape: (num_voxels, nt)
+
+
+
+    nt_indices = np.tile(np.arange(nt), (num_voxels, 1)) # Shape: (num_voxels, nt)
+    
+
+    mask1 = np.logical_or(diff_step_mask, mask_after_max)
+    mask2 = np.logical_or(diff_step_mask, mask_before_max)
+    
+   
+
+    nt_indices_masked_after_max = np.ma.masked_array(nt_indices,mask=mask1) # Shape: (num_voxels, nt)
+    nt_indices_masked_before_max = np.ma.masked_array(nt_indices,mask=mask2) # Shape: (num_voxels, nt)
+
+    # Find the closest points to the threshold (argmin on absolute differences)
+    ip1 = np.ma.max(nt_indices_masked_after_max, axis=1) # Shape: (num_voxels,)
+    ip1 = np.ma.filled(ip1,0)
+    ip2 = np.ma.min(nt_indices_masked_before_max, axis=1) # Shape: (num_voxels,)
+    ip2 = np.ma.filled(ip2,nt-1)
+    
     # Get the index array for voxels
     vi = np.arange(bolus_curves.shape[0])  
     
@@ -1058,16 +1626,56 @@ def average_time_series_4d(A,TR,st,w):
 
 
 # Functions to calculate the maps
+def gamma_var_approx(t, bat, ttp, fwhm, cmax):
+    ttp = ttp + bat
+    b = ((fwhm / 2.335) ** 2) * (1 / ttp)
+    a = ttp / b
+
+    Nx, Ny, Nz = ttp.shape
+    Nt = t.shape[0]  # Assuming t is a 1D array
+
+    t = t.reshape(1, 1, 1, Nt)
+    t = np.broadcast_to(t, (Nx, Ny, Nz, Nt))
+    a = np.broadcast_to(a[..., np.newaxis], (Nx, Ny, Nz, Nt))
+    b = np.broadcast_to(b[..., np.newaxis], (Nx, Ny, Nz, Nt))
+    ttp = np.broadcast_to(ttp[..., np.newaxis], (Nx, Ny, Nz, Nt))
+    cmax = np.broadcast_to(cmax[..., np.newaxis], (Nx, Ny, Nz, Nt))
+    bat = np.broadcast_to(bat[..., np.newaxis], (Nx, Ny, Nz, Nt))
+
+    # Apply element-wise mask and compute gamma variate
+    time_mask = t >= bat
+    brain_mask = np.broadcast_to(func_mask[..., np.newaxis],(Nx, Ny, Nz, Nt))
+    mask = np.logical_and(time_mask, brain_mask)  # final mask: bool
+    gam = np.zeros_like(t)  # shape (Nx, Ny, Nz, Nt)
+
+    # Avoid division by zero or negative powers
+    safe_ttp = np.where(ttp == 0, 1e-6, ttp)
+    safe_b = np.where(b == 0, 1e-6, b)
+
+    gam[mask] = (
+        cmax[mask] *
+        ((t[mask] / safe_ttp[mask]) ** a[mask]) *
+        np.exp(-(t[mask] - ttp[mask]) / safe_b[mask])
+    )
+    auc = np.trapz(gam, dx=TR, axis=3)
+
+    return gam, auc
+
+
 
 
 def calc_relperf_gamvar_afni():
+
     save2nifti(data1, aff_func_orig,form_code_func_orig, dir_relative_gamvar, 'conc.nii.gz')
+    opts = read_advanced_options()
+    cut_tail_npts = opts['cut_tail_npts']
     calc_map_script = os.path.join(script_directory,'afni_gamvar','fit_gamvar.csh')
-    calc_map_process = subprocess.Popen(calc_map_script + ' ' + dir_relative_gamvar, shell = True)
+    calc_map_process = subprocess.Popen(calc_map_script + ' ' + dir_relative_gamvar + ' ' + cut_tail_npts, shell = True)
     calc_map_process.wait()
 
 def calc_relperf_modfree():
     TR = nb_func.header['pixdim'][4]
+    
     
     t1_50, t2_50 = bolus_times_3d(data1, TR, func_mask,50)
     t1_90, t2_90 = bolus_times_3d(data1, TR, func_mask,90)
@@ -1076,33 +1684,22 @@ def calc_relperf_modfree():
 
     # Calculate TTP
     ttp = (t1_90+t2_90)/2
+    rttp = ttp - bat
 
     # Calculate FWHM
     fwhm = t2_50 - t1_50
 
+    # Calculate First momemnt
+    Nx, Ny, Nz, Nt = data1.shape
+    t = TR * np.arange(Nt)             # shape (Nt,)
+    fm = np.sum(data1 * t, axis=3) / np.sum(data1, axis=3)
+
+
     # Calculate AUC
     #auc = np.sum(data1,axis=3)
     auc = np.trapz(data1, dx=TR, axis=3)
-
     # Calculate cmax : maximum concentration
     cmax = np.max(data1, axis=3)
-
-    
-    # Calculate DBASE
-    # DBASE is difference in baseline, pre/post bolus
-    bolus = np.ma.mean(data1, axis=(0, 1, 2))
-    i_max = np.argmax(bolus)
-    v_max = np.max(bolus)
-    step = np.where(bolus > v_max*15/100, 1, -1)
-    diff_step = step[1:]-step[:-1]
-    a = np.where(diff_step==2)[0]
-    ip1 = min(a[a<i_max]) + 1
-    ip2 = 2*i_max - ip1
-    # Take 30s after ip2
-    ip2 = np.int64(ip2 + 30 // TR) if ip2 + 30 // TR < len(bolus)-1 else len(bolus)-1
-    base1 = np.ma.masked_where(func_mask==0,np.mean(func_orig[:,:,:,:ip1-1], axis=3))
-    base2 = np.ma.masked_where(func_mask==0,np.mean(func_orig[:,:,:,ip2:], axis=3))
-    dbase = 100*np.abs(base1-base2)/base1
 
     # Calculate SMS (smoothness)
     # Scale to max
@@ -1113,12 +1710,12 @@ def calc_relperf_modfree():
     data1_d1 = data1_sc[...,1:] - data1_sc[...,:-1]
     data1_d2 = data1_d1[...,1:] - data1_d1[...,:-1]
     sms = np.ma.sum(np.abs(data1_d2),axis=3)
-    sms = np.ma.masked_where(func_mask==0,np.squeeze(sms))
     sms = 100/sms  # This is to take the inverse and to have big number = smooth, same direction as F-score if fitting a gammavar
 
     # Save files
     save2nifti(ttp,aff_func_orig,form_code_func_orig,dir_relative_modfree,'ttp.nii.gz')
-    save2nifti(dbase,aff_func_orig,form_code_func_orig,dir_relative_modfree,'dbase.nii.gz')
+    save2nifti(fm,aff_func_orig,form_code_func_orig,dir_relative_modfree,'fm.nii.gz')
+    save2nifti(rttp,aff_func_orig,form_code_func_orig,dir_relative_modfree,'rttp.nii.gz')
     save2nifti(sms,aff_func_orig,form_code_func_orig,dir_relative_modfree,'sms.nii.gz')
     save2nifti(t1_50,aff_func_orig,form_code_func_orig,dir_relative_modfree,'rise.nii.gz')
     save2nifti(t2_50,aff_func_orig,form_code_func_orig,dir_relative_modfree,'decay.nii.gz')
@@ -1149,6 +1746,13 @@ def view_relperf():
     _,bat_array,label6 = load_nifti(dir_relative,'bat.nii.gz')
     data6,ove6,und6,mapval6 = show_map(ax6,bat_array,label6,'viridis',5,5,anat)
     
+    # Calculate the approximation of a gamma variate without doing the fit itself
+    # This calculation was placed after viewing auc,ttp,bat to avoid delaying the image display.
+    _,fwhm_array,_ = load_nifti(dir_relative,'fwhm.nii.gz')
+    _,cmax_array,_ = load_nifti(dir_relative,'cmax.nii.gz')
+    gam_approx, auc_approx = gamma_var_approx(t,bat_array,ttp_array,fwhm_array,cmax_array)
+    save2nifti(gam_approx,aff_func_orig,form_code_func_orig,dir_relative_modfree,'gam_appr.nii.gz')
+    save2nifti(auc_approx,aff_func_orig,form_code_func_orig,dir_relative_modfree,'auc_appr.nii.gz')
 
     plt.draw()
 
@@ -1161,28 +1765,47 @@ def press_calc_relperf():
         os.makedirs(dir_relative_modfree, exist_ok=True)
         calc_relperf_modfree()
     view_relperf()
-
-
-
-def show_map(axx,func_array,label,colorscale,vmin,vmax,anat_array):
     
-    func = np.ma.masked_where(func_array==0,func_array)
+    
+def press_switch_data():
+    global data1
+    if switch_data_method.get() == 'GamVar-afni':
+        _, data1, label1 = load_nifti(dir_relative_gamvar,'dsc_gamfit_full.nii.gz')
+        data1 = mask_4d_from_3d(func_mask==0,data1)
+        resetplot(ax3,data1,TR)
+        label1_text.set_text(label1)
+
+    elif switch_data_method.get() == 'Original':
+        files = glob(os.path.join(dir_preprocess, "func*scl*"))
+        print(files)
+        orig = max(files)
+        _, data1, label1 = load_nifti(dir_preprocess,orig)
+        data1 = mask_4d_from_3d(func_mask==0,data1)
+        resetplot(ax3,data1,TR)
+        label1_text.set_text(label1)
+
+def show_map(axx,map_array,label,colorscale,vmin,vmax,anat_array):
+    global ove_roi
+
+    map = np.ma.masked_where(map_array==0,map_array)
     _,_,k_func = ijk_anat2func([0,0,slice_n.val])
     axx.clear()
+
     axx.set_xticks([])
     axx.set_yticks([])
     
     if vmin < 0:
-        _ , max_func = vminvmax_percentile(func,vmax,vmax)
+        _ , max_func = vminvmax_percentile(map,vmax,vmax)
         min_func = -max_func
-    elif vmax < 0:
-        min_func , _ = vminvmax_percentile(func,vmin,vmin)
+    elif vmax < 0: # For CVR corr/BOLD with colorscale ranging from -val to +val
+        min_func , _ = vminvmax_percentile(map,vmin,vmin)
         max_func = -min_func
     else:
-        min_func , max_func = vminvmax_percentile(func,vmin,vmax)
+        min_func , max_func = vminvmax_percentile(map,vmin,vmax)
 
-
-    ove = axx.imshow(func[:, :, k_func],cmap=colorscale,vmin = min_func, vmax = max_func, alpha=0.9,extent=fov_func,zorder=2)
+    if axx == ax4:
+        ove_roi = ax4.imshow(roi_map[:, :, k_func],cmap=cmap_roi,alpha=0.7,extent=fov_func,zorder=3,vmin=0.5,vmax=6.5)
+    ove = axx.imshow(map[:, :, k_func],cmap=colorscale,vmin = min_func, vmax = max_func, alpha=0.9,extent=fov_func,zorder=2) 
     und = axx.imshow(anat_array[:, :, slice_n.val],cmap='gray',extent=fov_anat,zorder=1,vmin=min_anat,vmax=max_anat)
 
     xborder = 0.05*(fov_anat[1]-fov_anat[0])
@@ -1193,7 +1816,6 @@ def show_map(axx,func_array,label,colorscale,vmin,vmax,anat_array):
 
     # Metrics value in image
     mapval = axx.text(0.05, 0.05,'--',color='white', fontsize=10, ha='left', va='top', transform=axx.transAxes)
-
 
     # Set colorscale
     inset_pos = [0.97, 0.15, 0.03, 0.7]  # [left, bottom, width, height]
@@ -1210,26 +1832,30 @@ def show_map(axx,func_array,label,colorscale,vmin,vmax,anat_array):
     elif axx == ax6:
         cross3 = plot_cross(ax6,0,0)
     elif axx == ax4:
-        cross4 = plot_cross(ax4,0,0)    
+        cross4 = plot_cross(ax4,0,0)
+          
+   
+
     plt.draw()
 
-    return func, ove, und, mapval
+    return map, ove, und, mapval
 
 
 def calc_aif():
     Nvox=txt_nvox.get("1.0",END)
     Nvox=np.int64(Nvox.strip())
 
-    if relperf_method.get() == 'GamVar-afni':
+    if switch_data_method.get() == 'GamVar-afni':
         dir_relative = dir_relative_gamvar
-    elif relperf_method.get() == 'Model Free':
+    elif switch_data_method.get() == 'Original':
         dir_relative = dir_relative_modfree
     else:
         print("This method is not available yet")
 
     _,cmax,_ = load_nifti(dir_relative,'cmax.nii.gz')
     _,auc,_ = load_nifti(dir_relative,'auc.nii.gz')
-    _,dbase,_ = load_nifti(dir_relative,'dbase.nii.gz')
+    _,dbase,_ = load_nifti(dir_relative_modfree,'sr.nii.gz')
+    dbase = np.abs(dbase)
     _,sms,_ = load_nifti(dir_relative,'sms.nii.gz')
     _,rise,_ = load_nifti(dir_relative,'rise.nii.gz')
     _,decay,_ = load_nifti(dir_relative,'decay.nii.gz')
@@ -1239,45 +1865,55 @@ def calc_aif():
 
     # Read the options and set the variables accordingly.
     opts = read_advanced_options()
-    dbase_perc = float(opts['dbase_perc'])
+    sr_perc = float(opts['sr_perc'])
     sms_perc = float(opts['sms_perc'])
     amp_perc = float(opts['amp_perc'])
     amp = auc if opts['amp'] == "auc" else cmax
 
-    tp1 = locals()[opts['time_params1']]
-    tp2 = locals()[opts['time_params2']]
-    tp3 = locals()[opts['time_params3']]
+    tp1 = locals()[opts['time_para1']]
+    tp2 = locals()[opts['time_para2']]
+    tp3 = locals()[opts['time_para3']]
 
 
 
-    dbase_mask_sms_val = np.ma.masked_where((func_mask == 0) | (dbase > dbase_perc), sms)
+    dbase_mask_sms_val = np.ma.masked_where((func_mask == 0) | (np.abs(dbase) > sr_perc), sms)
     sms_th = np.nanpercentile(dbase_mask_sms_val.filled(np.nan),sms_perc)
-
+    
 
     sms_mask_amp_val = np.ma.masked_where(dbase_mask_sms_val < sms_th, amp)
+    ave = mask_average(data1,sms_mask_amp_val)
+
     amp_th = np.nanpercentile(sms_mask_amp_val.filled(np.nan),100-amp_perc)
 
+    
+
     amp_mask_tp1_val = np.ma.masked_where(sms_mask_amp_val < amp_th, tp1)
+    ave = mask_average(data1,amp_mask_tp1_val)
     N = np.ma.count(amp_mask_tp1_val)
     
     # Calculate the "shared" percentage in order to obatined Nvox number of AIF.
     perc = 100 * math.exp((1/3) * math.log(Nvox / N))
-
+    
 
     tp1_th = np.nanpercentile(amp_mask_tp1_val.filled(np.nan),perc)
     
 
-
     tp1_mask_tp2_val = np.ma.masked_where(amp_mask_tp1_val > tp1_th, tp2)
+    ave = mask_average(data1,tp1_mask_tp2_val)
     tp2_th = np.nanpercentile(tp1_mask_tp2_val.filled(np.nan),perc)
-
+    
     tp2_mask_tp3_val = np.ma.masked_where(tp1_mask_tp2_val > tp2_th, tp3)
+    ave = mask_average(data1,tp2_mask_tp3_val)
+
     tp3_th = np.nanpercentile(tp2_mask_tp3_val.filled(np.nan),perc)
 
     aif[:] = np.ma.masked_where(tp2_mask_tp3_val > tp3_th, np.ones_like(tp3))[:]
 
+    ave = mask_average(data1,aif)
+
     _,_,k_func = ijk_anat2func([0,0,slice_n.val])
     ove1b.set_data(aif[:, :, k_func])
+
 
 
      # Here I remove all the lines except for the time-line, the dotted current line and the average brain line.  I remove the average AIF, since it is re-calculated here.  Since I remove the average AIF, I need to add the line : ax3.add_line(line_aif_ave)
@@ -1295,32 +1931,95 @@ def calc_aif():
 
     save_aif()
     plt.draw()
+    
+def press_calc_aif_cvr():
+    opts = read_advanced_options()
+    if opts['aif_cvr_method'] == "1":
+        calc_aif_cvr_method1()
+    elif opts['aif_cvr_method'] == "2":
+       calc_aif_cvr_method2() 
+    
+def calc_aif_cvr_method2():
+      
+    Nvox=txt2_nvox.get("1.0",END)
+    Nvox=np.int64(Nvox.strip())
+
+    _,bold,_ = load_nifti(dir_cvr,'bold.nii.gz')
+    bold = np.ma.masked_where(func_mask==0,bold)
+    _,corr,_ = load_nifti(dir_cvr,'correlation.nii.gz')
+    corr = np.ma.masked_where(func_mask==0,corr)
+    _,lag,_ = load_nifti(dir_cvr,'lag.nii.gz')
+    lag = np.ma.masked_where(func_mask==0,lag)
+
+    # Taking the inverse function, so I can use mask_by_percent whether inv_lag is the
+    # cvr_p1, cvr_p2 or cvr_p3
+    
+    rev_lag = np.max(lag)+0.1-lag # So that rev_lag is never 0 avoid to be masked out
+    print("REVREVREV",type(rev_lag))
+    save2nifti(rev_lag,aff_func_orig,form_code_func_orig, dir_cvr, 'rev_lag.nii.gz')
+
+    if type_aif.get() == "Neg":
+        bold = -bold
+        corr = -corr
+
+    # smoothing kernel fwhm = 10mm => sigma = 10/2.333
+    vox_size = np.mean(nb_func.header['pixdim'][1:4])
+    sig = vox_size/2.333
+    sm_lag = gaussian_filter(lag,sigma = (sig,sig,sig))
+    sm_mask = gaussian_filter(np.ma.filled(func_mask,0),sigma = (sig,sig,sig)) 
+    sm_lag = np.ma.masked_where(lag==0,sm_lag / sm_mask)
+    rev_sm_lag = np.max(sm_lag)-sm_lag
+    
+    save2nifti(rev_sm_lag,aff_func_orig,form_code_func_orig,dir_cvr,'rev_sm_lag.nii.gz')
+    
+    opts = read_advanced_options()
+    params = opts['method2_param_order']
+    params = params.replace("lag", "rev_sm_lag")
+    parts = params.split()
+    cvr_p1 = locals()[parts[0]]
+    cvr_p2 = locals()[parts[1]]
+    cvr_p3 = locals()[parts[2]]
+    
+    N = np.ma.count(bold)
+    N_metrics = 3
+    perc = 100 * (Nvox / N) ** (1/N_metrics)
+
+    cvr_p2_masked  = mask_by_percentile(cvr_p1,cvr_p2,100-perc,"low")
+    cvr_p3_masked = mask_by_percentile(cvr_p2_masked,cvr_p3,100-perc,"low")
+    aif[:] = mask_by_percentile(cvr_p3_masked, np.ones_like(func_mask),100-perc,"low")[:]
+
+    _,_,k_func = ijk_anat2func([0,0,slice_n.val])
+    ove1b.set_data(aif[:, :, k_func])
+
+    # Here I remove all the lines except for the time-line, the dotted current line and the average brain line.  I remove the average AIF, since it is re-calculated here.  Since I remove the average AIF, I need to add the line : ax3.add_line(line_aif_ave)
+    resetplot(ax3,data1,TR)
+    #average AIF line was removed from the plot, so I add it again.
+    line_aif_ave.set_visible(chk_ave_aif_state.get())
+    # Save AIF to file
+    save_aif()
+    plt.draw()
 
 
-
-
-def calc_aif_cvr():
+def calc_aif_cvr_method1():
     
     Nvox=txt2_nvox.get("1.0",END)
     Nvox=np.int64(Nvox.strip())
 
     _,bold,_ = load_nifti(dir_cvr,'bold.nii.gz')
+    bold = np.ma.masked_where(func_mask==0,bold)
     _,corr,_ = load_nifti(dir_cvr,'correlation.nii.gz')
+    corr = np.ma.masked_where(func_mask==0,corr)
     _,lag,_ = load_nifti(dir_cvr,'lag.nii.gz')
+    lag = np.ma.masked_where(func_mask==0,lag)
     
     
     if type_aif.get() == "Neg":
         bold = -bold
         corr = -corr
 
-    # smoothing kernel fwhm = 10mm => sigma = 10/2.333
-    sig = 10/2.333
-    smoothed_lag = gaussian_filter(lag,sigma = (sig,sig,sig))
-    smoothed_mask = gaussian_filter(np.ma.filled(func_mask,0),sigma = (sig,sig,sig)) 
-    smoothed_lag = np.ma.masked_where(lag==0,smoothed_lag / smoothed_mask)
-    save2nifti(smoothed_lag,aff_func_orig,form_code_func_orig,dir_cvr,'lag_blurred')
-    
-    corr = np.ma.masked_where((func_mask == 0) | (lag >= 2), corr)
+    opts = read_advanced_options()
+    lag_thr = float(opts['method1_lag_thr'])
+    corr = np.ma.masked_where((func_mask == 0) | (lag >= lag_thr), corr)
     
     N = np.ma.count(corr)
     N_metrics = 2
@@ -1339,8 +2038,6 @@ def calc_aif_cvr():
     # Save AIF to file
     save_aif()
     plt.draw()
-
-
 
 def mask_by_percentile(mask_image, target_image, percentile, mask_type):
     """
@@ -1376,7 +2073,7 @@ def mask_by_percentile(mask_image, target_image, percentile, mask_type):
     else:
         # For non-masked arrays, calculate the threshold directly
         threshold = np.percentile(mask_image, percentile)
-    print("threshold", threshold)
+    print("Threshold",threshold)
     # Apply the mask to the target image based on the mask_type ('low' or 'high')
     if mask_type == "low":
         # Mask values in target_image where mask_image is less than or equal to the threshold
@@ -1387,8 +2084,6 @@ def mask_by_percentile(mask_image, target_image, percentile, mask_type):
     else:
         # Raise an error if the mask_type is invalid
         raise ValueError("mask_type should be 'low' or 'high'")
-    print("Nnox initial",np.ma.count(mask_image))
-    print("Nvox_left",np.ma.count(masked_target_image))
     return masked_target_image
 
 
@@ -1416,7 +2111,7 @@ def save_aif():
             mean_aif = 'mean_AIF_neg.1D'
             multi_aif = 'multi_AIF_neg.1D'
 
-    elif current_tab_text == "Perfusion Analysis":
+    elif current_tab_text == "DSC Analysis":
         if relperf_method.get() == 'GamVar-afni':
             dir = dir_relative_gamvar
         elif relperf_method.get() == 'Model Free':
@@ -1434,41 +2129,32 @@ def average_aif(aif):
     aif_ave = np.ma.mean(np.ma.masked_array(data1, mask=aif_expanded), axis=(0, 1, 2)) 
     return aif_ave  
 
+
 def mask_average(data_4d, mask_3d):
     """
-    Averages the 4D data along the first three axes, considering the mask from the 3D array.
-    
-    Parameters:
-    data_4d : np.ndarray or np.ma.MaskedArray
-        A 4D array (ni, nj, nk, nt) representing the data.
-    mask_3d : np.ndarray or np.ma.MaskedArray
-        A 3D array or masked array (ni, nj, nk) representing the mask.
-        
-    Returns:
-    np.ma.MaskedArray
-        The averaged time series (nt), considering the mask.
+    Compute average time series over (i,j,k) using a 3D mask.
     """
-    
-    # If data_4d is not already a masked array, make it one
-    if not np.ma.isMaskedArray(data_4d):
-        data_4d = np.ma.masked_array(data_4d)
 
-    # Check if mask_3d is already a masked array
-    if not np.ma.isMaskedArray(mask_3d):
-        # Create a mask where zeros are treated as masked values
-        mask_3d = np.ma.masked_array(mask_3d, mask=(mask_3d == 0))
-    
-    # Expand the 3D mask along the time axis (nt) to match the shape of data_4d
-    mask_4d = np.expand_dims(mask_3d.mask, axis=-1)  # Extract the mask from mask_3d
-    mask_4d = np.tile(mask_4d, (1, 1, 1, data_4d.shape[-1]))  # Repeat along the time axis
-    
-    # Apply the mask to the 4D data
-    masked_data_4d = np.ma.masked_array(data_4d, mask=mask_4d)
-    
-    # Compute the mean along the first three axes (ni, nj, nk), skipping masked values
-    average_1d = np.ma.mean(masked_data_4d, axis=(0, 1, 2))
-    
-    return average_1d
+    # Ensure data is a masked array (does not modify mask)
+    data_4d = np.ma.masked_array(data_4d, copy=False)
+
+    # Build a 3D boolean mask
+    if np.ma.isMaskedArray(mask_3d):
+        # Get the mask; if scalar, convert to full-false mask
+        mask_bool_3d = np.ma.getmaskarray(mask_3d)
+    else:
+        # Zero = masked, nonzero = unmasked
+        mask_bool_3d = (mask_3d == 0)
+
+    # Expand mask to 4D
+    mask_4d = mask_bool_3d[..., np.newaxis]
+    mask_4d = np.repeat(mask_4d, data_4d.shape[-1], axis=3)
+
+    # Apply mask
+    masked_data = np.ma.masked_array(data_4d, mask=mask_4d)
+
+    # Average over space
+    return masked_data.mean(axis=(0,1,2))
 
 # Quantitative: fit_aif_conv_exp
 def calc_quantperf_exp():
@@ -1484,14 +2170,20 @@ def calc_quantperf_exp():
     aifconv = exponential_convolution(aif_ave,TR,min_mtt,max_mtt,delta_mtt)
     mtt = multi_regress(data1,aifconv,delta_mtt)
     mtt = mtt + 1 # Add 1s to mtt such that the minimum mtt is 1s instead of zero
-    save2nifti(mtt,aff_func_orig,form_code_func_orig,dir_quantitative_expon,'mtt.nii.gz')
     _,auc,_ = load_nifti(dir_relative,'auc.nii.gz')
     _, auc_max = vminvmax_percentile(auc,0.1,0.1)
     cbv = 100*0.7*auc/auc_max # CBV is in % or mL/100g if 100g ~ 100mL of tissue  - kh = 0.7 - hematocrit concetration difference between tissue and vascular voxels
     # For example a grey matter voxel of 5% means 5mL of blood for 100mL of tissue 5mL/100mL - > 5mL/100g
-    save2nifti(cbv,aff_func_orig,form_code_func_orig,dir_quantitative_expon,'cbv.nii.gz')
     cbf = 60*cbv/mtt # The 60 is to convert to mL/100g/min
+    
+    view_quantperf()
+    # Saving to NIFTI
+    window.after(0, popup.destroy)
+    save2nifti(mtt,aff_func_orig,form_code_func_orig,dir_quantitative_expon,'mtt.nii.gz')
+    save2nifti(cbv,aff_func_orig,form_code_func_orig,dir_quantitative_expon,'cbv.nii.gz')
     save2nifti(cbf,aff_func_orig,form_code_func_orig,dir_quantitative_expon,'cbf.nii.gz')
+
+    
 
 def calc_quantperf_SVD():
 
@@ -1507,32 +2199,48 @@ def calc_quantperf_SVD():
 
 
     _,auc,_ = load_nifti(dir_relative,'auc.nii.gz')
-    auc_max = np.max(auc)
+    #auc_max = np.max(auc)
+    _, auc_max = vminvmax_percentile(auc,0.1,0.1)
     aif_scaled = auc_max*aif_ave / auc_aif
+    np.savetxt(os.path.join(dir_quantitative_decon,'scaled_AIF.1D'),np.array(aif_scaled).transpose())
 
-    
+
     if quant_method.get() == 'oSVD':
         method = 'osvd'
     elif quant_method.get() == 'SVD':
         method = 'svd'
     
-    R = deconvolve_brain(data1,aif_scaled,func_mask,method=method)
-    save2nifti(R,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'R.nii.gz')
-    cbf = np.max(R,axis=3) * 100 * 60 * 0.7 # /g/s => /100g/min
-    save2nifti(cbf,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'cbf.nii.gz')
+    opts = read_advanced_options()
+    svd_threshold = float(opts['svd_threshold'])
+
+    R = deconvolve_brain(data1,aif_scaled,func_mask,method=method,percentage=svd_threshold)
+
+    cbf = np.max(R,axis=3) * 100 * 60 * 0.7 # mL/g/s *100*60 => mL/100g/min
     mtt = TR*np.sum(R,axis=3)/np.max(R,axis=3)
     mtt = np.ma.masked_where(mtt<=0,mtt)
-    save2nifti(mtt,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'mtt.nii.gz')
     cbv = 100*0.7*auc/auc_max # CBV is in % or mL/100g if 100g ~ 100mL of tissue  - kh = 0.7 - hematocrit concetration difference between tissue and vascular voxels
     # For example a grey matter voxel of 5% means 5mL of blood for 100mL of tissue 5mL/100mL - > 5mL/100g
-    save2nifti(cbv,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'cbv.nii.gz')
+    
+    # Calculate MTT using Central Volume theorem
+    mtt_cvt = 60*(cbv/cbf)
+    # Calculate CBF using Central Volume theorem
     cbf_cvt = 60*cbv/mtt
-    save2nifti(cbf_cvt,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'cbf_cvt.nii.gz')
-    # Calculate Tmax
-    t1_90, t2_90 = bolus_times_3d(R, TR, func_mask,90)
-    Tmax =(t1_90+t2_90)/2
-    save2nifti(Tmax,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'Tmax.nii.gz')
 
+    # Calculate Tmax
+    t1_95, t2_95 = bolus_times_3d(R, TR, func_mask,95)
+    Tmax =(t1_95+t2_95)/2
+    
+    # Saving to nifti
+    save2nifti(R,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'R.nii.gz')
+    save2nifti(mtt,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'mtt.nii.gz')
+    save2nifti(mtt_cvt,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'mtt_cvt.nii.gz')
+    save2nifti(cbf,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'cbf.nii.gz')
+    save2nifti(cbv,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'cbv.nii.gz')
+    save2nifti(cbf_cvt,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'cbf_cvt.nii.gz')
+    save2nifti(Tmax,aff_func_orig,form_code_func_orig,dir_quantitative_decon,'Tmax.nii.gz')
+    np.savetxt(os.path.join(dir_quantitative_decon,'scaled_AIF.1D'),np.array(aif_scaled).transpose())
+    view_quantperf()
+    window.after(0, popup.destroy)
 
 def calc_quantcvr():
     global data1
@@ -1542,39 +2250,48 @@ def calc_quantcvr():
     sign = np.sign(bold)              # Compute sign of bold (3D)
     #sign = np.repeat(sign[..., np.newaxis],data1.shape[3], axis=3) # Repeat along the new axis to match data shap
 
-    data1 = data1 * sign[..., np.newaxis]       # Invert data based on sign
-    data1 = np.ma.log(data1/100 + 1) # Convert to concentration
+    data1_pos = data1 * sign[..., np.newaxis]       # Invert data based on sign
+    r2_star = np.ma.log(data1_pos/100 + 1) # Convert to concentration
     
-    resetplot(ax3,data1,TR)
-    data1_masked = np.where(data1 >= 0, data1, 0)
-    auc = np.ma.trapz(data1_masked, axis=3)
+    save2nifti(r2_star,aff_func_orig,form_code_func_orig,dir_cvr_svd,'r2_star0.nii.gz')
+    r2_star = np.where(data1_pos >= 0, r2_star, 0)
+    save2nifti(r2_star,aff_func_orig,form_code_func_orig,dir_cvr_svd,'r2_star.nii.gz')
+
+    auc = np.trapz(r2_star, axis=3)
     save2nifti(auc,aff_func_orig,form_code_func_orig,dir_cvr_svd,'auc.nii.gz')
-    aif_ave = mask_average(data1,aif)
+    aif_ave = mask_average(r2_star,aif)
     masked_auc = np.ma.masked_where(aif.mask,auc)
     auc_aif = np.mean(masked_auc)
     _, auc_max = vminvmax_percentile(auc,0.1,0.1)
-    auc_max = np.max(auc)
+    #auc_max = np.max(auc)
     aif_scaled = auc_max*aif_ave / auc_aif
+    np.savetxt(os.path.join(dir_cvr_svd,'scaled_AIF.1D'),np.array(aif_scaled).transpose())
 
     if quant_method_cvr.get() == 'oSVD':
         method = 'osvd'
     elif quant_method_cvr.get() == 'SVD':
         method = 'svd'
 
-    R = deconvolve_brain(data1,aif_scaled,func_mask,method=method)
+    opts = read_advanced_options()
+    svd_threshold = float(opts['svd_threshold'])
+    R = deconvolve_brain(r2_star,aif_scaled,func_mask,method=method,percentage=svd_threshold)
     save2nifti(R,aff_func_orig,form_code_func_orig,dir_cvr_svd,'R.nii.gz')
     cbf = np.max(R,axis=3) * 100 * 60 * 0.7 # /g/s => /100g/min
+    cbf = np.ma.masked_where(bold<=0,cbf) # Mask neg CVR voxels
     save2nifti(cbf,aff_func_orig,form_code_func_orig,dir_cvr_svd,'cbf.nii.gz')
     mtt = TR*np.sum(R,axis=3)/np.max(R,axis=3)
+    mtt = np.ma.masked_where(bold<=0,mtt) # Mask neg CVR voxels
     save2nifti(mtt,aff_func_orig,form_code_func_orig,dir_cvr_svd,'mtt.nii.gz')
     cbv = 100*0.7*auc/auc_max # CBV is in % or mL/100g if 100g ~ 100mL of tissue  - kh = 0.7 - hematocrit concetration difference between tissue and vascular voxels
     # For example a grey matter voxel of 5% means 5mL of blood for 100mL of tissue 5mL/100mL - > 5mL/100g
+    cbv = np.ma.masked_where(bold<=0,cbv) # Mask neg CVR voxels
     save2nifti(cbv,aff_func_orig,form_code_func_orig,dir_cvr_svd,'cbv.nii.gz')
     cbf_cvt = 60*cbv/mtt
     save2nifti(cbf_cvt,aff_func_orig,form_code_func_orig,dir_cvr_svd,'cbf_cvt.nii.gz')
     # Calculate Tmax
-    t1_90, t2_90 = bolus_times_3d(R, TR, func_mask,90)
-    Tmax =(t1_90+t2_90)/2
+    t1_95, t2_95 = bolus_times_3d(R, TR, func_mask,95)
+    Tmax =(t1_95+t2_95)/2
+    Tmax = np.ma.masked_where(bold<=0,Tmax) # Mask neg CVR voxels
     save2nifti(Tmax,aff_func_orig,form_code_func_orig,dir_cvr_svd,'Tmax.nii.gz')
     view_quantcvr()
 
@@ -1584,32 +2301,27 @@ def view_quantcvr():
     global ove4, ove5, ove6
     global und4, und5, und6
     global mapval4, mapval5, mapval6
-    global dir_quantitative
+    global dir_cvr_svd
 
-    
-    if quant_method_cvr.get() == 'Residue Exp':
-        dir_quantitative = dir_cvr_expon
-    else:
-        dir_quantitative = dir_cvr_svd
-    
-    _,cbv_array,label4 = load_nifti(dir_quantitative,'cbv.nii.gz')
+    _,cbv_array,label4 = load_nifti(dir_cvr_svd,'cbv.nii.gz')
     data4,ove4,und4,mapval4 = show_map(ax4,cbv_array,label4,'hot',5,5,anat)
     
-    _,mtt_array,label5 = load_nifti(dir_quantitative,'mtt.nii.gz')
+    _,mtt_array,label5 = load_nifti(dir_cvr_svd,'mtt.nii.gz')
     data5,ove5,und5,mapval5 = show_map(ax5,mtt_array,label5,'viridis',5,5,anat)
 
-    _,tmax_array,label6 = load_nifti(dir_quantitative,'Tmax.nii.gz')
-    data6,ove6,und6,mapval6 = show_map(ax6,tmax_array,label6,'viridis',5,5,anat)
+    _,tmax_array,label6 = load_nifti(dir_cvr_svd,'cbf.nii.gz')
+    data6,ove6,und6,mapval6 = show_map(ax6,tmax_array,label6,'hot',5,5,anat)
 
     plt.draw() 
 
 
 def press_calc_quantperf():
     if quant_method.get() == 'Residue Exp':
-        calc_quantperf_exp()
+        popup_wait()
+        threading.Thread(target=calc_quantperf_exp, daemon=True).start()
     else:
-        calc_quantperf_SVD()
-    view_quantperf()    
+        popup_wait()
+        threading.Thread(target=calc_quantperf_SVD, daemon=True).start()
 
 def press_calc_tau_2d():
     global data5,ove5,und5,mapval5
@@ -1633,7 +2345,11 @@ def press_calc_tau_2d():
     data5,ove5,und5,mapval5 = show_map(ax5,lag,"TAU",'viridis',5,5,anat)
 
 
-def press_calc_tau():
+def press_calc_tau_3d():
+    popup_wait()
+    threading.Thread(target=calc_tau_3d, daemon=True).start()
+
+def calc_tau_3d():
     global data5,ove5,und5,mapval5 
     # Calculate the TAU map using exponential_convolution method
     tau_minmax = box_tau_minmax.get("1.0", "end").strip()  # Strip removes extra newlines
@@ -1647,8 +2363,10 @@ def press_calc_tau():
     cvr_ref_conv = exponential_convolution(cvr_ref, TR, start, end,step)
     tau = multi_regress(data1, cvr_ref_conv, step)
     data5,ove5,und5,mapval5 = show_map(ax5,tau,"TAU",'viridis',5,5,anat)
+    window.after(0, popup.destroy)
     save2nifti(tau,aff_func_orig,form_code_func_orig,dir_cvr,'tau.nii.gz')
     np.savetxt(os.path.join(dir_cvr,'ref_convolved.1D'),cvr_ref_conv.transpose())
+    
 
 def press_view_tau():
     global data5,ove5,und5,mapval5
@@ -1676,7 +2394,11 @@ def press_calc_lag_2d():
     lag = lag * step
     data5,ove5,und5,mapval5 = show_map(ax5,lag,"LAG",'viridis',5,5,anat)
 
-def press_calc_lag():
+def press_calc_lag_3d():
+    popup_wait()
+    threading.Thread(target=calc_lag_3d, daemon=True).start()
+
+def calc_lag_3d():
     global data5,ove5,und5,mapval5
     # Calculate the SHIFT map
     shift_minmax = box_lag_minmax.get("1.0", "end").strip()  # Strip removes extra newlines
@@ -1690,19 +2412,15 @@ def press_calc_lag():
     ref_multi_shifts = multi_shifts_ref(cvr_ref, TR, start, end,step)
     np.savetxt(os.path.join(dir_cvr,'ref_multi_shifts.1D'),ref_multi_shifts.transpose())
     lag = multi_regress(data1,ref_multi_shifts,step)
-    save2nifti(lag,aff_func_orig,form_code_func_orig,dir_cvr,'lag.nii.gz')
     data5,ove5,und5,mapval5 = show_map(ax5,lag,"LAG",'viridis',5,5,anat)
+    window.after(0, popup.destroy)
+    save2nifti(lag,aff_func_orig,form_code_func_orig,dir_cvr,'lag.nii.gz')
+    
     
 def press_view_lag():
     global data5,ove5,und5,mapval5
     _,lag,_ = load_nifti(dir_cvr,'lag.nii.gz')
     data5,ove5,und5,mapval5 = show_map(ax5,lag,"LAG",'viridis',5,5,anat)
-
-
-
-
-
-
 
 
 # This function is used to convolve the aif with multiple exponential functions of different mtt (MTT)
@@ -1731,7 +2449,7 @@ def exponential_convolution(aif, TR, mtt_start, mtt_end, dmtt):
         exponential = np.pad(exponential, (L,0), 'constant')
 
         # Normalize the exponential function
-        exponential /= np.sum(exponential)
+        #exponential /= np.sum(exponential)
 
         # Perform the convolution
         aifconv = convolve(exponential, aifpad, mode='same')
@@ -1767,7 +2485,6 @@ def multi_regress(data1, aifconvs, dmtt):
         for j in range(ny):
             for k in range(nz):
                 if not np.ma.is_masked(data1[i, j, k, 0]):
-                    #update_progress(100/Nvox)
                     # Extract the voxel time series
                     v = data1[i, j, k, :]
                     
@@ -1782,13 +2499,12 @@ def multi_regress(data1, aifconvs, dmtt):
                     
                     # Store the index of the highest correlation coefficient
                     I_AIFCONVS[i, j, k] = best_idx
-                    #progress_bar.step(100/Nvox)
+                    
                     
 
     # Calculate mtt. Add 0.01 so that AFNI does not interpret those zeros as masked values
     mtt = dmtt * I_AIFCONVS + 0.01
     return mtt
-
 
 
 
@@ -1798,28 +2514,28 @@ def multi_regress(data1, aifconvs, dmtt):
 
 def create_block_circulant_matrix(aif):
     """Create a block-circulant matrix (for oSVD)."""
-    n = len(aif)
-    H = np.zeros((n, n))
-    for i in range(n):
-        H[i] = np.roll(aif, i)
+    H = circulant(aif)    
+    np.savetxt(os.path.join(dir_quantitative_decon,'H_circulant.1D'),np.array(H))    
     return H
 
 def create_toeplitz_matrix(aif):
     """Create a standard convolution (Toeplitz) matrix (for SVD)."""
-    return toeplitz(aif, np.zeros(len(aif)))
+    H = toeplitz(aif, np.zeros(len(aif)))
+    np.savetxt(os.path.join(dir_quantitative_decon,'H_standard.1D'),np.array(H))    
+    return H
 
 # --- Precompute inverse H using SVD ---
 
-def prepare_inverse(H, percentage=0.2):
+def prepare_inverse(H, percentage=20):
     """Compute regularized pseudo-inverse of matrix H using SVD."""
     U, s, Vh = npl.svd(H, full_matrices=False)
-    tol = percentage * np.max(s)
+    tol = (percentage/100) * np.max(s)
     s_inv = np.array([1/x if x > tol else 0 for x in s])
     return Vh.T @ np.diag(s_inv) @ U.T
 
 # --- Voxel-wise deconvolution ---
 
-def deconvolve_brain(array_4d, aif, mask, method='osvd', percentage=0.2):
+def deconvolve_brain(array_4d, aif, mask, method='svd', percentage=20):
     """
     Perform voxel-wise deconvolution on a 4D fMRI array using either standard SVD or oSVD.
 
@@ -1833,11 +2549,17 @@ def deconvolve_brain(array_4d, aif, mask, method='osvd', percentage=0.2):
     Returns:
     - R: 4D array of residue functions (same shape as array_4d)
     """
+    # Pad aif and array_4d with zeros
+    nt = len(aif)
+    aif_pad = np.concatenate([np.zeros(nt),aif,np.zeros(nt)])
+    array_4d_pad = np.concatenate([np.zeros_like(array_4d),array_4d,np.zeros_like(array_4d)],axis=3)
+
+
     if method == 'osvd':
-        H = create_block_circulant_matrix(aif)
+        H = create_block_circulant_matrix(aif_pad)
         print("Block circulant SVD")
     elif method == 'svd':
-        H = create_toeplitz_matrix(aif)
+        H = create_toeplitz_matrix(aif_pad)
         print("Regular SVD")
     else:
         raise ValueError("method must be 'osvd' or 'svd'")
@@ -1845,16 +2567,17 @@ def deconvolve_brain(array_4d, aif, mask, method='osvd', percentage=0.2):
     H_inv = prepare_inverse(H, percentage)
 
     # Initialize output
-    R = np.zeros_like(array_4d, dtype=float)
+    R = np.zeros_like(array_4d_pad, dtype=float)
     ni, nj, nk, _ = R.shape
 
     for i in range(ni):
         for j in range(nj):
             for k in range(nk):
                 if mask[i, j, k]:
-                    Ct = array_4d[i, j, k, :]
+                    Ct = array_4d_pad[i, j, k, :]
                     R[i, j, k, :] = H_inv @ Ct
-    return R
+    return R[...,:nt]
+
 
 
 def view_quantperf():
@@ -1987,7 +2710,7 @@ def press_calc_cvr_ref():
 
 
 # Linear regression analysis
-def cvr_regress_3d(array_4d, mask, ref_multi, TR, n_jobs=6):
+def cvr_regress_3d(array_4d, mask, ref_multi, TR, motparam=None,n_jobs=6):
     # Ensure ref_multi is 2D
     if ref_multi.ndim == 1:
         ref_multi = ref_multi[:, np.newaxis]  # Convert to 2D with shape (nt, 1)
@@ -1996,7 +2719,7 @@ def cvr_regress_3d(array_4d, mask, ref_multi, TR, n_jobs=6):
     ni, nj, nk, nt = array_4d.shape
     n_ref = ref_multi.shape[-1]  # This works for both 1D and 2D ref_multi
     
-    # Time vector based on TR
+    # Time vector based on TR used for linear drift
     t = TR * np.arange(0, nt)
     
     # Identify voxels within the mask (non-zero mask values)
@@ -2005,6 +2728,8 @@ def cvr_regress_3d(array_4d, mask, ref_multi, TR, n_jobs=6):
 
     # Reshape the 4D array into a 2D array for regression
     Y = array_4d[mask != 0, :]  # Shape: (num_voxels, nt)
+    Y = np.asarray(Y, dtype=float)
+    Y = Y.T
 
     # Prepare arrays to store results for all references
     bcoef_all_refs = np.zeros((num_voxels, n_ref))  # To store coefficients for each reference
@@ -2012,48 +2737,75 @@ def cvr_regress_3d(array_4d, mask, ref_multi, TR, n_jobs=6):
     pbold_all_refs = np.zeros((num_voxels, n_ref))  # To store coefficients for each reference
     cnr_all_refs = np.zeros((num_voxels, n_ref)) 
 
-
+    # Construct the baseline matrix composed of: the baseline signal (ones), the polynomials (drifts) and the motions
+    # See AFNI useful 3dfim+ manual: https://afni.nimh.nih.gov/afni/doc/manual/3dfim+.pdf
+    # Construct the drift colums
+    tc = t - t.mean() # centered
+    ts = tc/np.std(tc) # scaled
+    opts = read_advanced_options()
+    pol_deg = int(opts['pol_deg'])
+    Xdrift = np.column_stack([tc**k for k in range(0, pol_deg + 1)])
+    print("Xdrift", Xdrift.shape)
+    
+    if motparam is not None:
+        Xbase = np.column_stack((Xdrift,motparam))
+    else:
+        Xbase = Xdrift
+    print("Xbase", Xbase.shape)
     # Perform linear regression for all voxels
     for r in range(n_ref):
-        # Construct the design matrix for the current reference and time
-        X_r = np.column_stack((ref_multi[:, r], t))  # Shape: (nt, t)
-
+        
+        X_r = np.column_stack((ref_multi[:, r], Xbase))
+    
         # Perform the linear regression for all voxels
-        model = LinearRegression(fit_intercept=True, n_jobs=n_jobs)
-        model.fit(X_r, Y.T)  # We transpose Y to match the shape (nt, num_voxels)
+        model = LinearRegression(fit_intercept=False, n_jobs=n_jobs)
+        model.fit(X_r, Y)  
         
-        # Extract the coefficients for the reference predictor
+        # BCOEF
         bcoef_r = model.coef_[:, 0]  # Extract coefficients for the first predictor (ref)
-        
-        # Calculate R² for each voxel
-        Y_pred = model.predict(X_r)
-        ss_total = np.sum((Y.T - np.mean(Y.T, axis=0))**2, axis=0)  # Total sum of squares
-        ss_residual = np.sum((Y.T - Y_pred)**2, axis=0)  # Residual sum of squares
-        r_squared = 1 - (ss_residual / ss_total)
-        std_residual = np.std((Y.T - Y_pred), axis=0)
-
-
-        # Calculate the percentage BOLD signal for each voxel
+             
+        # PBOLD
         min_ref = np.percentile(ref_multi[:, r], 2)
         max_ref = np.percentile(ref_multi[:, r], 98)
         delta_ref = max_ref - min_ref
         pbold_r = bcoef_r * delta_ref
 
-        # Calculate CNR for each voxel
+        # CNR
+        Y_pred = model.predict(X_r)
+        std_residual = np.std((Y - Y_pred), axis=0)
         cnr_r = np.abs(pbold_r) / std_residual 
 
-        # Compute the correlation coefficient (rcoef)
-        rcoef_r = np.sign(bcoef_r) * np.sqrt(r_squared)
+        # Partial correlation
+        # Solve Y ≈ Xbase @ beta_base
+        beta_base = np.linalg.lstsq(Xbase, Y, rcond=None)[0]   # (nb, nvox)
+        Y_base = Xbase @ beta_base                             # (nt, nvox)
+        Y_res = Y - Y_base                                    # (nt, nvox)
+
+        beta_ref_base = np.linalg.lstsq(Xbase, ref_multi[:, r], rcond=None)[0]  # (nb,)
+        ref_base = Xbase @ beta_ref_base                                       # (nt,)
+        ref_res = ref_multi[:, r] - ref_base                                   # (nt,)
+
+        # Center residuals
+        ref_res_c = ref_res - ref_res.mean()
+        Y_res_c = Y_res - Y_res.mean(axis=0)
+
+        # Numerator
+        num = np.sum(ref_res_c[:, None] * Y_res_c, axis=0)
+
+        # Denominator
+        den = np.sqrt(
+            np.sum(ref_res_c**2) *
+            np.sum(Y_res_c**2, axis=0)
+        )
+
+        # Partial correlation
+        r_partial = num / den        # shape: (nvox,)
 
         # Store the results for this reference
         bcoef_all_refs[:, r] = bcoef_r
-        rcoef_all_refs[:, r] = rcoef_r
+        rcoef_all_refs[:, r] = r_partial
         pbold_all_refs[:, r] = pbold_r
         cnr_all_refs[:, r] = cnr_r
-
-        # Update the progress bar
-        update_progress(100/(n_ref))
-        
 
     # Choose the best reference (highest absolute correlation) for each voxel
     best_ref_idx = np.argmax(np.abs(rcoef_all_refs), axis=1)  # Index of the best ref for each voxel
@@ -2078,7 +2830,7 @@ def cvr_regress_3d(array_4d, mask, ref_multi, TR, n_jobs=6):
             RCOEF[i, j, k] = rcoef_best[idx]
             PBOLD[i, j, k] = pbold_best[idx]
             CNR[i, j, k] = cnr_best[idx]
-            BEST_I[i, j, k] = best_ref_idx[idx] + 0.05
+            BEST_I[i, j, k] = best_ref_idx[idx] + 0.05 # Add 0.05 so it is not 0 that is often (in AFNI) used as mask
 
     return BCOEF, RCOEF, PBOLD, CNR, BEST_I
 
@@ -2088,6 +2840,16 @@ def press_calc_regression_2d():
     global und4, und5, und6
     global label4,label5,label6
     global mapval4, mapval5, mapval6
+
+    motparam = None  # default
+
+    opts = read_advanced_options()
+    use_mot = opts['use_motparam']
+    motfile = os.path.join(dir_preprocess, 'param_mot.1D')
+
+    if use_mot == 'yes' and os.path.isfile(motfile):
+        motparam = np.loadtxt(motfile)
+
 
     # Create arrays to hold the coefficients with the same shape as the 3D array
     ni, nj, nk = data1.shape[:3]
@@ -2101,11 +2863,11 @@ def press_calc_regression_2d():
     mask_k_func = np.zeros_like(func_mask)
     mask_k_func[:,:,k_func] = func_mask[:,:,k_func]
 
-    BCOEF[:,:,:], RCOEF[:,:,:], PBOLD[:,:,:], CNR[:,:,:], _ = cvr_regress_3d(data1,mask_k_func,cvr_ref,TR)
+    BCOEF[:,:,:], RCOEF[:,:,:], PBOLD[:,:,:], CNR[:,:,:], _ = cvr_regress_3d(data1,mask_k_func,cvr_ref,TR,motparam=motparam)
     
-    data4 ,ove4,und4,mapval4 = show_map(ax4,PBOLD,"ΔBOLD(%)",fMRI_colors,-9999,5,anat)
+    data4 ,ove4,und4,mapval4 = show_map(ax4,PBOLD,"BOLD[%]",fMRI_colors,-9999,5,anat)
     data5,ove5,und5,mapval5 = show_map(ax5,CNR,"CNR","inferno",5,5,anat)
-    data6,ove6,und6,mapval6 = show_map(ax6,RCOEF,"Correlation",fMRI_colors,-9999,0.1,anat)   
+    data6,ove6,und6,mapval6 = show_map(ax6,RCOEF,"R",fMRI_colors,-9999,0.1,anat)   
 
 def press_calc_regression():
     global data4, data5,data6
@@ -2114,17 +2876,35 @@ def press_calc_regression():
     global label4,label5,label6
     global mapval4, mapval5, mapval6
 
-    BCOEF, RCOEF, PBOLD, CNR, _ = cvr_regress_3d(data1,func_mask,cvr_ref,TR)
+    motparam = None  # default
+
+    opts = read_advanced_options()
+    use_mot = opts['use_motparam']
+    motfile = os.path.join(dir_preprocess, 'param_mot.1D')
+
+    if use_mot == 'yes' and os.path.isfile(motfile):
+        motparam = np.loadtxt(motfile)
+
+    BCOEF, RCOEF, PBOLD, CNR, _ = cvr_regress_3d(
+        data1, func_mask, cvr_ref, TR, motparam=motparam
+    )
+    # In addition calculate the first moment
+    a = data1 - np.min(data1,axis=3,keepdims=True)
+    Nt = data1.shape[3]
+    t = TR * np.arange(Nt)             # shape (Nt,)
+    fm = np.sum(a * t, axis=3) / np.sum(a, axis=3)
+
 
     os.makedirs(dir_cvr, exist_ok=True)
     save2nifti(BCOEF,aff_func_orig,form_code_func_orig,dir_cvr,'slope.nii.gz')
     save2nifti(RCOEF,aff_func_orig,form_code_func_orig,dir_cvr,'correlation.nii.gz')
     save2nifti(PBOLD,aff_func_orig,form_code_func_orig,dir_cvr,'bold.nii.gz')
     save2nifti(CNR,aff_func_orig,form_code_func_orig,dir_cvr,'cnr.nii.gz')
+    save2nifti(fm,aff_func_orig,form_code_func_orig,dir_cvr,'fm.nii.gz')
     np.savetxt(os.path.join(dir_cvr,'ref_shifted.1D'),cvr_ref)
-    data4 ,ove4,und4,mapval4 = show_map(ax4,PBOLD,"ΔBOLD",fMRI_colors,-9999,5,anat)
+    data4 ,ove4,und4,mapval4 = show_map(ax4,PBOLD,"BOLD[%]",fMRI_colors,-9999,5,anat)
     data5,ove5,und5,mapval5 = show_map(ax5,CNR,"CNR","inferno",5,5,anat)
-    data6,ove6,und6,mapval6 = show_map(ax6,RCOEF,"Correlation",fMRI_colors,-9999,0.1,anat) 
+    data6,ove6,und6,mapval6 = show_map(ax6,RCOEF,"R",fMRI_colors,-9999,0.1,anat) 
 
 def press_view_regression():
     global data4, data5,data6
@@ -2136,44 +2916,80 @@ def press_view_regression():
     _,PBOLD,_ = load_nifti(dir_cvr,'bold.nii.gz')
     _,CNR,_ = load_nifti(dir_cvr,'cnr.nii.gz')
     _,RCOEF,_ = load_nifti(dir_cvr,'correlation.nii.gz')
-    data4 ,ove4,und4,mapval4 = show_map(ax4,PBOLD,"ΔBOLD",fMRI_colors,-9999,5,anat)
+    data4 ,ove4,und4,mapval4 = show_map(ax4,PBOLD,"BOLD[%]",fMRI_colors,-9999,5,anat)
     data5,ove5,und5,mapval5 = show_map(ax5,CNR,"CNR","inferno",5,5,anat)
-    data6,ove6,und6,mapval6 = show_map(ax6,RCOEF,"Correlation",fMRI_colors,-9999,0.1,anat) 
+    data6,ove6,und6,mapval6 = show_map(ax6,RCOEF,"R",fMRI_colors,-9999,0.1,anat) 
 
-bands = []
 def press_define_windows(*args):
-    
-    while bands:  # Ensure no bands remain in the list
-        band = bands.pop()  # Remove from list and the plot
-        band.remove()
-    
-    if type_bands.get() == "Inputs":
-        # Ask the user to input a list of numbers as a comma-separated string
-        input_str = simpledialog.askstring("Input", "\nEnter duration and start times (sec)\n\nDuration, t1, t2, t3, t4 ...\n")   
-        if input_str:
-            # Split the input string by commas and convert each part to a float
+    global bands
+
+    # --- 1. Safely clear existing bands ---
+    if 'bands' in globals() and bands:
+        for band in bands:
             try:
-                window_width = float(input_str.split(',')[0])
-                start_times = [float(num.strip()) for num in input_str.split(',')[1:]]
-                # Plot each window
+                band.remove()
+            except Exception:
+                pass
+        bands.clear()
+    else:
+        bands = []
+
+    # --- 2. INPUTS mode: user provides duration and start times ---
+    if type_bands.get() == "Inputs":
+        input_str = simpledialog.askstring(
+            "Input",
+            "\nEnter duration and start times (sec)\n\nFormat: Duration, t1, t2, t3, ..."
+        )
+
+        if input_str:
+            try:
+                parts = [float(num.strip()) for num in input_str.split(',')]
+                if len(parts) < 2:
+                    raise ValueError("Need at least one start time after duration.")
+                window_width = parts[0]
+                start_times = parts[1:]
+
                 for start_time in start_times:
-                    band = ax3.axvspan(start_time, start_time + window_width, color='pink',ec='pink',linewidth=3, alpha=0.3)
+                    band = ax3.axvspan(
+                        start_time,
+                        start_time + window_width,
+                        color='pink', ec='pink', linewidth=3, alpha=0.3
+                    )
                     bands.append(band)
-            except ValueError:
-                print("Invalid input. Please enter a valid list of numbers.")
 
+            except ValueError as e:
+                print("Invalid input:", e)
+
+    # --- 3. AUTO mode: detect peaks automatically ---
     elif type_bands.get() == "Auto":
-        input_str = simpledialog.askstring("Input", "\nEnter approximate bolus width\n")
-        bolus_width = int(input_str)
-        ipeaks,_ = find_peaks(cvr_ref,distance=bolus_width,height=(0.5,None)) 
+        input_str = simpledialog.askstring("Input", "\nEnter approximate bolus width (sec)\n")
+        if input_str:
+            try:
+                bolus_width = float(input_str)
+                ipeaks, _ = find_peaks(cvr_ref, distance=bolus_width / TR, height=(0.5, None))
+                start_times = TR * ipeaks
 
-        start_times = TR * ipeaks
-          # This can be adjusted later with the dilate/constrict buttons
-        for start_time in start_times:
-            band = ax3.axvspan(start_time, start_time + bolus_width, color='pink',ec='pink',linewidth=3, alpha=0.3)
-            bands.append(band)
+                for start_time in start_times:
+                    band = ax3.axvspan(
+                        start_time,
+                        start_time + bolus_width,
+                        color='pink', ec='pink', linewidth=3, alpha=0.3
+                    )
+                    bands.append(band)
 
-    # Show grid and the plot
+            except Exception as e:
+                print("Error in Auto mode:", e)
+
+    # --- 4. Debug info ---
+    if bands:
+        print(f"{len(bands)} bands created")
+        for i, b in enumerate(bands[:3]):  # show first few only
+            print(f"  band {i+1}: {b}")
+    else:
+        print("No bands created")
+
+    # --- 5. Update plot ---
+    ax3.grid(True)
     plt.draw()
 
 
@@ -2189,67 +3005,98 @@ def move_bands_left():
 
 def shrink_bands():
     for band in bands:
-        band.set_width(band.get_width() - 1)   # Shrink the band by 11 seconds
+        band.set_width(band.get_width() - 1)   # Shrink the band by 1 seconds
         plt.draw()
 
 def dilate_bands():
     for band in bands:
-        band.set_width(band.get_width() + 1)   # Dilate the band by 11 seconds
+        band.set_width(band.get_width() + 1)   # Dilate the band by 1 seconds
         plt.draw()
+def press_ave_boluses():
+    popup_wait()
+    threading.Thread(target=ave_boluses, daemon=True).start()
 
-def calc_ave_time_windows():
+
+
+def ave_boluses():
     global data1, cvr_ref, cvr_ref_orig, pr
     pr += 1
 
     bd = int(bands[0].get_width() // TR)
-    data1_sum = np.zeros_like(data1[...,0:bd])
+    data1_sum = np.zeros_like(data1[...,0:bd]) 
+    cvr_ref_sum = np.zeros(bd)
+    N_CNR = np.zeros_like(data1[...,0:len(bands)])
     
     i = 0
     for band in bands:
         x = int(band.get_x() // TR)  # Ensure integer division for indexing
         data1_sum = data1_sum + data1[..., x:x+bd]  # Sum over the time window
+        if 'cvr_ref' in globals():
+            cvr_ref_sum = cvr_ref_sum + cvr_ref[x:x+bd]   
+            _,_,_,N_CNR[...,i],_ = cvr_regress_3d(data1_sum/(i+1), func_mask, cvr_ref_sum/(i+1), TR, n_jobs=4)
         i += 1
+    
+    
     data1 = data1_sum / len(bands)  # Average over the number of bands
     resetplot(ax3,data1,TR)
+    window.after(0, popup.destroy)
     save2nifti(data1, aff_func_orig,form_code_func_orig, dir_preprocess, f'func_{pr:02d}_ave.nii.gz')
-
-
-    if 'cvr_ref' in globals():    
-        cvr_ref_sum = np.zeros_like(cvr_ref[0:bd])
-        N_CNR = np.zeros_like(data1[...,0:len(bands)])
-        i = 0
-        for band in bands:
-            x = int(band.get_x() // TR) 
-            cvr_ref_sum = cvr_ref_sum + cvr_ref[x:x+bd]  # Sum over the time window
-            _,_,_,N_CNR[...,i],_ = cvr_regress_3d(data1_sum/(i+1), func_mask, cvr_ref_sum/(i+1), TR, n_jobs=4)
-            i += 1
+    
+    if 'cvr_ref' in globals(): 
         cvr_ref = cvr_ref_sum / len(bands)
         cvr_ref_orig = cvr_ref
         cvr_ref_scl = scale_ref(cvr_ref)
         line_cvr_ref.set_data(t,cvr_ref_scl)
         save2nifti(N_CNR,aff_func_orig,form_code_func_orig,dir_cvr,'cnr_boluses.nii.gz')
-
-
+    
+    
 
 # Slice navigation ===================================================================================
 # ====================================================================================================
 
 def update_slice(k_anat):
-    und1.set_data(anat[:, :, k_anat])
-    und4.set_data(anat[:, :, k_anat])
-    und5.set_data(anat[:, :, k_anat])
-    und6.set_data(anat[:, :, k_anat])
-    _,_,k_func = ijk_anat2func([0,0,k_anat])
-    l = min(int(vline.get_xdata()[0] // TR),data1.shape[3]-1)
-    ove1.set_data(data1[:,:,k_func,l])
-    if 'ove4' in globals():
-        ove4.set_data(data4[:, :, k_func])
-    if 'ove5' in globals():
-        ove5.set_data(data5[:, :, k_func])
-    if 'ove6' in globals():
-        ove6.set_data(data6[:, :, k_func])
-    ove1b.set_data(aif[:, :, k_func])
-    text_coord.set_text(f'I- J- K{k_func}')
+    for und in [und1, und4, und5, und6]:
+        und.set_data(anat[:, :, k_anat])
+        
+    _, _, k_func = ijk_anat2func([0, 0, k_anat])
+    
+    if chk_map_state.get():
+        visible = 0 <= k_func < data1.shape[2]
+    else:
+        visible = False
+
+    if chk_func_state.get():
+        visible_func = 0 <= k_func < data1.shape[2]
+    else:
+        visible_func = False
+    
+
+    if 'ove1' in globals(): ove1.set_visible(visible_func)
+    if 'ove1b' in globals(): ove1b.set_visible(visible)
+    if 'ove4' in globals(): ove4.set_visible(visible)
+    if 'ove5' in globals(): ove5.set_visible(visible)
+    if 'ove6' in globals(): ove6.set_visible(visible)
+    #if 'ove_roi' in globals(): ove_roi.set_visible(visible)
+
+    if visible_func:
+        l = min(int(vline.get_xdata()[0] // TR), data1.shape[3]-1)
+        ove1.set_data(data1[:, :, k_func, l])
+    if visible:
+        if 'ove4' in globals(): ove4.set_data(data4[:, :, k_func])
+        if 'ove5' in globals(): ove5.set_data(data5[:, :, k_func])
+        if 'ove6' in globals(): ove6.set_data(data6[:, :, k_func])
+        ove1b.set_data(aif[:, :, k_func])
+        text_coord.set_text(f'I- J- K{k_func}')
+    else:
+        text_coord.set_text('I- J- K-')
+
+    # Added for ROI
+    visible_roi = 0 <= k_func < data1.shape[2]
+    ove_roi.set_visible(visible_roi)
+    ove_roi.set_data(roi_map[:, :, k_func])
+
+    fig.canvas.draw_idle()
+
 
 # Coordinates Conversion functions
 # ============================================================================================
@@ -2286,6 +3133,15 @@ def xyz2func_ijk(xyz):
     ijk_func = ijk_func.tolist()
     return ijk_func
 
+def xyz2func_ijk_float(xyz):
+    invaff_func = npl.inv(aff_func)
+    xyz.append(1)
+    ijk_func = invaff_func@np.array(xyz)
+    ijk_func = np.array(ijk_func[0:3])
+    ijk_func = ijk_func.tolist()
+    return ijk_func
+
+
 # Show time series while images navigation ===========================================================
 # Important to know the coordoninates of the point (i,j) on the image correspond to
 # the i-ieme column and j-ieme line, which is the M(j,i) point in the matrice
@@ -2315,13 +3171,6 @@ def on_mouse_move(event):
                 mapval5.set_text(f'{data5[I,J,K]:.2f}')
             if 'mapval6' in globals() and 'data6' in globals():
                 mapval6.set_text(f'{data6[I,J,K]:.2f}')
-            # if 'data4' in globals():
-            #     text_coord.set_text(f'I{J} J{I} K{K}')
-            #     mapval4.set_text(f'{data4[I,J,K]:.2f}')
-            #     mapval5.set_text(f'{data5[I,J,K]:.2f}')
-            #     mapval6.set_text(f'{data6[I,J,K]:.2f}')
-            # else:
-            #     text_coord.set_text(f'I{J} J{I} K{K}')
             plt.draw()
 
 # Keep time series when clicking on image ============================================================
@@ -2367,22 +3216,32 @@ def on_click_im_right(event):
     global data4,ove4,und4,label4,mapval4
     global data5,ove5,und5,label5,mapval5
     global data6,ove6,und6,label6,mapval6
+    global data1,ove1,label1,nb_func
     
-    
+    if event.button == MouseButton.RIGHT:  
+        if event.inaxes == ax1:
+            nb_func, data1,label1 = load_nifti_filedialog()
+            if 'func_mask' in globals():
+                data1 = mask_4d_from_3d(func_mask==0,data1)
+            TR = nb_func.header['pixdim'][4]
+            resetplot(ax3,data1,TR)
+            label1_text.set_text(label1)
+            
+
     if event.button == MouseButton.RIGHT:  
         if event.inaxes == ax4:
             rel_x, rel_y = event.inaxes.transAxes.inverted().transform((event.x, event.y))
-            if 0.97 <= rel_x <= 1 and 0.15 <= rel_y <= 0.85:
+            if 0.97 <= rel_x <= 1 and 0.3 <= rel_y <= 0.7:
                 x_root = event.guiEvent.x_root
                 y_root = event.guiEvent.y_root
                 # Show the context menu
                 context_menu4.tk_popup(x_root, y_root)
-            elif 0.90 <= rel_x <= 0.95 and 0.15 <= rel_y <= 0.35:
+            elif 0.97 <= rel_x <= 1 and 0.15 <= rel_y <= 0.3:
                 vmin = simpledialog.askfloat("Input", "Enter new minimum value:", parent=window)
                 ove4.set_clim(vmin=vmin)
                 apply_cbar_format(ove4.cbar) 
                 plt.draw()
-            elif 0.90 <= rel_x <= 0.95 and 0.5 <= rel_y <= 0.85:
+            elif 0.97 <= rel_x <= 1 and 0.7 <= rel_y <= 0.85:
                 vmax = simpledialog.askfloat("Input", "Enter new maximum value:", parent=window)
                 ove4.set_clim(vmax=vmax)
                 apply_cbar_format(ove4.cbar) 
@@ -2397,17 +3256,17 @@ def on_click_im_right(event):
     
         elif event.inaxes == ax5:
             rel_x, rel_y = event.inaxes.transAxes.inverted().transform((event.x, event.y))
-            if 0.97 <= rel_x <= 1 and 0.15 <= rel_y <= 0.85:
+            if 0.97 <= rel_x <= 1 and 0.3 <= rel_y <= 0.7:
                 x_root = event.guiEvent.x_root
                 y_root = event.guiEvent.y_root
                 # Show the context menu
                 context_menu5.tk_popup(x_root, y_root)
-            elif 0.90 <= rel_x <= 0.95 and 0.15 <= rel_y <= 0.35:
+            elif 0.97 <= rel_x <= 1 and 0.15 <= rel_y <= 0.3:
                 vmin = simpledialog.askfloat("Input", "Enter new minimum value:", parent=window)
                 ove5.set_clim(vmin=vmin)
                 apply_cbar_format(ove5.cbar) 
                 plt.draw()
-            elif 0.90 <= rel_x <= 0.95 and 0.5 <= rel_y <= 0.85:
+            elif 0.97 <= rel_x <= 1 and 0.7 <= rel_y <= 0.85:
                 vmax = simpledialog.askfloat("Input", "Enter new maximum value:", parent=window)
                 ove5.set_clim(vmax=vmax)
                 apply_cbar_format(ove5.cbar) 
@@ -2423,17 +3282,17 @@ def on_click_im_right(event):
 
         elif event.inaxes == ax6:
             rel_x, rel_y = event.inaxes.transAxes.inverted().transform((event.x, event.y))
-            if 0.97 <= rel_x <= 1 and 0.15 <= rel_y <= 0.85:
+            if 0.97 <= rel_x <= 1 and 0.3 <= rel_y <= 0.7:
                 x_root = event.guiEvent.x_root
                 y_root = event.guiEvent.y_root
                 # Show the context menu
                 context_menu6.tk_popup(x_root, y_root)
-            elif 0.90 <= rel_x <= 0.95 and 0.15 <= rel_y <= 0.35:
+            elif 0.97 <= rel_x <= 1 and 0.15 <= rel_y <= 0.3:
                 vmin = simpledialog.askfloat("Input", "Enter new minimum value:", parent=window)
                 ove6.set_clim(vmin=vmin)
                 apply_cbar_format(ove6.cbar) 
                 plt.draw()
-            elif 0.90 <= rel_x <= 0.95 and 0.5 <= rel_y <= 0.85:
+            elif 0.97 <= rel_x <= 1 and 0.7 <= rel_y <= 0.85:
                 vmax = simpledialog.askfloat("Input", "Enter new maximum value:", parent=window)
                 ove6.set_clim(vmax=vmax)
                 apply_cbar_format(ove6.cbar) 
@@ -2666,6 +3525,7 @@ def mask_4d_along_t(data_4d, value_to_mask):
     return masked_data_4d
 
 def save2nifti(array, affine, form_code, dir, filename):
+    global TR
     # Check if the array is a masked array and handle accordingly
     if np.ma.isMaskedArray(array):
         array = array.filled(0)
@@ -2673,13 +3533,15 @@ def save2nifti(array, affine, form_code, dir, filename):
     # Determine the appropriate transpose operation based on the array's dimensions
     if array.ndim == 3:
         array = array.transpose((1, 0, 2))
+        # Create the Nifti image
+        nb_im = nb.Nifti1Image(array, affine)
     elif array.ndim == 4:
         array = array.transpose((1, 0, 2, 3))
+        # Create the Nifti image
+        nb_im = nb.Nifti1Image(array, affine)
+        nb_im.header['pixdim'][4] = TR
     else:
         raise ValueError("Array must be either 3D or 4D")
-    
-    # Create the Nifti image
-    nb_im = nb.Nifti1Image(array, affine)
     
     # Set the header information
     nb_im.header['sform_code'] = form_code
@@ -2691,109 +3553,9 @@ def save2nifti(array, affine, form_code, dir, filename):
     # Save the Nifti image
     nb.save(nb_im, fullfile)
 
-
-
-def set_advanced_options():
-    filename = os.path.join(dir_perfmri,'PerfMRI_advanced_options.txt')
-    with open(filename, 'w') as file:
-        file.write("polort_raw = 0 # Degree of the polynomial to remove from raw dataset during the scaling stage\n")
-        file.write("polort_reg = 1 # Degree of the polynomial to model (and remove) in the multiple linear regression\n")
-        file.write("##################################################################################################\n")
-        file.write("dbase_perc = 30 # Max % Difference in baseline between pre and post bolus\n")
-        file.write("sms_perc = 75 # % of the smoothest time series \n")
-        file.write("amp_perc = 10 # % of the largest AUC or CMAX \n")
-        file.write("amp = cmax # Use either cmax or auc \n")
-        file.write("time_params1 = rise # You can use bat, rise, ttp, decay or fwhm \n")
-        file.write("time_params2 = ttp # You can use bat, rise, ttp, decay or fwhm \n")
-        file.write("time_params3 = decay # You can use bat, rise, ttp, decay or fwhm \n")
-
-
-def read_advanced_options():
-    filename = os.path.join(dir_perfmri,'PerfMRI_advanced_options.txt')
-    advanced_options = {}
-    with open(filename, 'r') as file:
-        for line in file:
-            # Strip whitespace from the beginning and end
-            line = line.strip()
-            # Ignore empty lines and comments
-            if not line or line.startswith('#'):
-                continue
-            # Split line into variable and value parts
-            parts = line.split('=', 1)
-            if len(parts) == 2:
-                var_name = parts[0].strip()
-                # Extract the value before any comment
-                value_part = parts[1].split('#')[0].strip()
-                try:
-                    # Store it in the dictionary
-                    advanced_options[var_name] = value_part
-                except ValueError:
-                    print(f"Invalid value for {var_name}: {value_part}")
-
-    return advanced_options
-
-def open_advanced_options():
-    if frame_opts.winfo_ismapped():  # If the frame is visible
-        frame_opts.pack_forget()      # Hide the frame
-    else:
-        frame_opts.pack()             # Show the frame
-    
-
-# =================================================================================================
-# =================================================================================================
-# =================================================================================================
-# MAKE THE INTERfACE
-# =================================================================================================
-# =================================================================================================
-# =================================================================================================
-
-# Create window
-window = Tk()
-
-#Get the current screen width and height
-screen_width = window.winfo_screenwidth()
-screen_height = window.winfo_screenheight()
-win_geo = '%dx%d'%(screen_height*1.5,screen_height/1.3)
-# Adjust window accordingly and make title
-window.geometry(win_geo)
-window.title("PerfMRI")
-
-frame_ui = Frame(window)
-frame_ui.pack(side=LEFT, anchor="n", padx=10, pady=50)
-
-
-nb_prepro = ttk.Notebook(frame_ui,style="TNotebook")
-nb_prepro.pack(side=TOP,anchor="w",fill='both', expand=True)
-
-frame_preprocess = Frame(nb_prepro,pady=20)
-nb_prepro.add(frame_preprocess, text='Pre-processing')
-
-
-
-nb_analysis = ttk.Notebook(frame_ui,style="TNotebook")
-nb_analysis.pack(side=TOP,anchor="w",fill='both', expand=True)
-
-
-# Make a frame for perfusion input
-frame_perf = Frame(nb_analysis,pady=20)
-nb_analysis.add(frame_perf, text='Perfusion Analysis')
-
-
-# Make a frame for CVR input
-frame_cvr = Frame(nb_analysis,pady=20)
-nb_analysis.add(frame_cvr, text='CVR Analysis')
-
-
-
-frame_chkbt = Frame(frame_ui)
-frame_chkbt.pack(side=TOP,anchor="w",padx=10, pady=10)
-
-# Make a frame for Segmentation
-frame_seg = Frame(nb_analysis,pady=20)
-nb_analysis.add(frame_seg, text='Segmentation')
-
-
-
+# ==================================
+# Segmentation function using Kmean
+# ===================================
 def seg_calc():
     global data4,ove4,und4,mapval4,pr,seg
     global data5,ove5,und5,mapval5
@@ -2859,12 +3621,452 @@ def seg_calc():
 
 
 
+lasso = None  # persistent global
+global roi_num
+roi_num = [1]
+def activate_draw_roi():
+    """Toggle between click mode and draw mode"""
+    global cid_on_click_im,lasso
+
+    if chk_roi_state.get():
+        # ---- DRAW MODE ON ----
+        print("Switching to DRAW mode")
+
+        # Disconnect click handler
+        fig.canvas.mpl_disconnect(cid_on_click_im)
+
+        # Create lasso on ax4 (or you can change to event.inaxes if you want)
+        global lasso
+        if lasso is not None:
+            lasso.disconnect_events()
+            lasso = None
+        lasso = LassoSelector(ax4, onlasso, button=1,props=dict(color='red', linewidth=2, alpha=0.8))  # left button
+    else:
+        # ---- CLICK MODE ON ----
+        print("Switching to CLICK mode")
+
+        # Remove any active lasso
+        if lasso is not None:
+            lasso.disconnect_events()
+            lasso = None
+
+        # Reconnect click handler
+        cid_on_click_im = fig.canvas.mpl_connect('button_press_event', on_click_im)
+
+
+def onlasso(vertices):
+    # ---- slice index
+    _, _, K = ijk_anat2func([0, 0, slice_n.val])
+    
+    # ---- Convert vertices: anat (x,y) → func (J,I)
+    func_vertices = []
+    for x, y in vertices:
+        J, I, _ = xyz2func_ijk_float([-x, -y, 0])
+        func_vertices.append((J, I))
+    func_vertices = np.asarray(func_vertices)
+    
+    if tkvar_roi_type.get() == 'Closed':
+        # ---- Build path in FUNCTIONAL space and find points contains in path
+        path = Path(func_vertices)
+        ny, nx = roi_map.shape[:2]
+        x, y = np.meshgrid(np.arange(nx), np.arange(ny))
+        points = np.column_stack((x.ravel(), y.ravel()))
+        roi_coords = path.contains_points(points,radius=-0.2).reshape(ny, nx)
+        
+    elif tkvar_roi_type.get() == 'Opened':
+        roi_coords = np.zeros_like(roi_map.data[:,:,0],dtype=bool)
+        # vertices is a list/array of (J, I) pairs
+        for J, I in np.round(func_vertices).astype(int):  # or your converted vertices
+            roi_coords[I, J] = True
+
+    # ---- Apply ROI
+    if tkvar_roi_num.get() == 'Fill with':
+        roi_map[:, :, K][roi_coords] = 1
+
+    elif tkvar_roi_num.get() == '0':
+        roi_map[:, :, K][roi_coords] = np.ma.masked
+
+    else:
+        roi_val = int(tkvar_roi_num.get())
+        roi_map[:, :, K][roi_coords] = roi_val
+
+    ove_roi.set_data(roi_map[:, :, K])
+    plt.draw()
+
+def load_roi():
+    global roi_map, ove_roi
+    roi_clean()
+    roi = filedialog.askopenfilename(initialdir=maindir,title="Select ROI image (3D)",  filetypes=[("NIFTI files", '*.nii'),("Compressed NIFTI files",'*.gz'),("AFNI files",'*.HEAD')])
+    _,roi_map,_ = load_nifti(os.path.dirname(roi),os.path.basename(roi))
+    roi_map = np.ma.masked_where(roi_map==0,roi_map)
+    _,_,K = ijk_anat2func([0,0,slice_n.val])
+    ove_roi.set_data(roi_map[:,:,K])
+    window.focus_force()
+
+
+def roi_clean():
+    roi_map[:] = np.ma.masked_all_like(func_mean)
+    _,_,K = ijk_anat2func([0,0,slice_n.val])
+    ove_roi.set_data(roi_map[:,:,K])
+    roi_num[0] = 1
+    plt.draw()
+
+def roi_save():
+    f = filedialog.asksaveasfilename(initialfile="roi.nii.gz")
+    if f:
+        save2nifti(roi_map,aff_func_orig,form_code_func_orig, os.path.dirname(f), os.path.basename(f))
+    
+def roi_ave():
+    # Clear and insert new 
+    tree_roi.delete(*tree_roi.get_children())
+    
+    for dir, fname, label in [
+        (dir_cvr,'bold.nii.gz', 'BOLD(%)'),
+        (dir_cvr,'slope.nii.gz', 'CVR (%/Δstim)'),
+        (dir_cvr,'correlation.nii.gz', 'R'),
+        (dir_cvr,'CNR.nii.gz', 'CNR'),
+        (dir_cvr,'lag.nii.gz', 'LAG(s)'),
+        (dir_cvr,'tau.nii.gz', 'TAU(s)'),
+        (dir_relative_modfree,'auc.nii.gz', 'AUC'),
+        (dir_relative_modfree,'max.nii.gz', 'CMAX'),
+        (dir_relative_modfree,'bat.nii.gz', 'BAT(s)'),
+        (dir_relative_modfree,'fwhm.nii.gz', 'FWHM(s)'),
+        (dir_relative_modfree,'ttp.nii.gz', 'TTP(s)'),
+        (dir_relative_gamvar,'auc.nii.gz', 'Gamvar AUC'),
+        (dir_relative_gamvar,'max.nii.gz', 'GV CMAX'),
+        (dir_relative_gamvar,'bat.nii.gz', 'GV BAT(s)'),
+        (dir_relative_gamvar,'fwhm.nii.gz', 'GV FWHM(s)'),
+        (dir_relative_gamvar,'ttp.nii.gz', 'GV TTP(s)'),
+        (dir_quantitative_decon,'cbv.nii.gz', 'rCBV'),
+        (dir_quantitative_decon,'mtt.nii.gz', 'MTT(s)'),
+        (dir_quantitative_decon,'mtt_cvt.nii.gz', 'MTT_CVT(s)'),
+        (dir_quantitative_decon,'Tmax.nii.gz', 'Tmax(s)'),
+        (dir_quantitative_decon,'cbf.nii.gz', 'rCBF'),
+        (dir_quantitative_decon,'cbf_cvt.nii.gz', 'rCBV/MTT'),
+        (dir_quantitative_expon,'mtt.nii.gz', 'Exp MTT(s)'),
+        (dir_quantitative_expon,'cbf.nii.gz', 'Exp rCBV/MTT'),
+        
+    ]:
+        fullfile = os.path.join(dir, fname)
+        if os.path.isfile(fullfile):
+            _, img, _ = load_nifti(dir, fname)
+
+
+            
+            row = [label]
+            for r in [1,2,3,4,5,6]:
+                roi_val = np.round(np.ma.mean(np.ma.masked_where(roi_map != r, img)), 2)
+                row.append(roi_val)
+            tree_roi.insert('', 'end', values=row)
+            
+
+def copy_tree_roi_to_clipboard():
+    rows = []
+    for child in tree_roi.get_children():
+        row = tree_roi.item(child)['values']
+        rows.append("\t".join(map(str, row)))
+    table_text = "Metrics\tROI1\tROI2\tROI3\tROI4\\tROI5\tROI6n" + "\n".join(rows)
+    
+    # Copy to clipboard
+    frame_roi.clipboard_clear()
+    frame_roi.clipboard_append(table_text)
+    frame_roi.update()  # now it stays on the clipboard after window is closed
+
+
+
+#====================================================================================
+
+def set_advanced_options():
+    filename = os.path.join(dir_perfmri,'PerfMRI_advanced_options.txt')
+    with open(filename, 'w') as file:
+        file.write("#========= Pre-processing ==========\n")
+        file.write("slice_time_interp = quadratic # Can be linear, cubic, quadratic \n")
+        file.write("reg_afni = yes # Uses afni 3dvolreg if yes. Uses NIPY SpaceRealign otherwise \n")
+        file.write("dil_mask = 0 # # of voxels dilation around the BOLD mask \n")
+        file.write("scale_percentile = 25 # Time series percentile to define baseline for BOLD scaling \n")
+        file.write("\n")
+        file.write("#========= DSC AIF section parameters ==========\n")
+        file.write("sr_perc = 20 # Max % Difference in baseline between pre and post bolus\n")
+        file.write("sms_perc = 25 # Reject the 25% roughest time series. If AIF results is noisy increase this number  \n")
+        file.write("amp_perc = 10 # % of the largest AUC or CMAX \n")
+        file.write("amp = cmax # Use either cmax or auc \n")
+        file.write("time_para1 = rise # You can use bat, rise, ttp, decay or fwhm \n")
+        file.write("time_para2 = ttp # You can use bat, rise, ttp, decay or fwhm \n")
+        file.write("time_para3 = decay # You can use bat, rise, ttp, decay or fwhm \n")
+        file.write("\n")
+        file.write("#========= CVR AIF section parameters ==========\n")
+        file.write("aif_cvr_method = 1 # Method can only be 1 or 2\n")
+        file.write("method1_lag_thr = 0.6 # Include voxels whose lag < method1_lag_thr\n")
+        file.write("method2_param_order = r lag bold # Metrics order of p-tile thresholding algorithm \n")
+        file.write("\n")
+        file.write("#========= CVR regression otions ==========\n")
+        file.write("pol_deg = 1 #  Num. of polynomial to remove. If 0 only baseline will be remove. If pol_deg=2 baseline, t^1 and t^2 wil be remove\n")
+        file.write("use_motparam = no # If yes, use the 6 rigid body mot parameters in the regression \n")
+        file.write("\n")
+        file.write("cut_tail_npts = 2 # Number of time points to ignore (at the end of the time series) for the gamma fit  \n")
+        file.write("svd_threshold = 20 # Percentage of max value in the inverted AIF matrix under which values are zero out \n")
+        
+        
+
+def read_advanced_options():
+    filename = os.path.join(dir_perfmri,'PerfMRI_advanced_options.txt')
+    advanced_options = {}
+    with open(filename, 'r') as file:
+        for line in file:
+            # Strip whitespace from the beginning and end
+            line = line.strip()
+            # Ignore empty lines and comments
+            if not line or line.startswith('#'):
+                continue
+            # Split line into variable and value parts
+            parts = line.split('=', 1)
+            if len(parts) == 2:
+                var_name = parts[0].strip()
+                # Extract the value before any comment
+                value_part = parts[1].split('#')[0].strip()
+                try:
+                    # Store it in the dictionary
+                    advanced_options[var_name] = value_part
+                except ValueError:
+                    print(f"Invalid value for {var_name}: {value_part}")
+
+    return advanced_options
+
+def open_advanced_options():
+    if frame_opts.winfo_ismapped():  # If the frame is visible
+        frame_opts.pack_forget()      # Hide the frame
+    else:
+        frame_opts.pack()             # Show the frame
+    frame_opts.update_idletasks()
+
+
+
+# =================================================================================================
+# =================================================================================================
+# =================================================================================================
+# MAKE THE INTERfACE
+# =================================================================================================
+# =================================================================================================
+# =================================================================================================
+
+
+#Get the current screen width and height
+screen_width = window.winfo_screenwidth()
+screen_height = window.winfo_screenheight()
+win_geo = '%dx%d'%(screen_height*1.5,screen_height/1.3)
+# Adjust window accordingly and make title
+window.geometry(win_geo)
+window.title("PerfMRI")
+
+# Container that will hold the scrollable canvas + scrollbar
+frame_ui_container = Frame(window,width=300)
+frame_ui_container.pack(side=LEFT, fill=BOTH,expand=False)
+
+
+ui_visible = True  # Global toggle flag
+pack_opts = dict(side=BOTTOM, fill=BOTH,expand=TRUE)
+def toggle_ui():
+    global ui_visible
+    if ui_visible:
+        frame_ui_container.pack_forget()
+        toggle_button.config(text="Show UI")
+        print("winfo_ismapped:", frame_ui_container.winfo_ismapped())
+    else:
+        frame_ui_container.pack(**pack_opts)
+        frame_ui_canvas.config(scrollregion=frame_ui_canvas.bbox("all"))
+        frame_ui_container.lift()
+        frame_ui_container.update()
+        window.update_idletasks()
+        print("size:", frame_ui_container.winfo_width(), frame_ui_container.winfo_height())
+        print("Canvas bbox:", frame_ui_canvas.bbox("all"))
+        toggle_button.config(text="Hide UI")
+    ui_visible = not ui_visible
+
+toggle_button = Button(window, text="Hide UI", command=toggle_ui)
+toggle_button.pack(side=TOP)
+
+# Canvas inside container
+frame_ui_canvas = Canvas(frame_ui_container,width=frame_ui_canvas_width,bd=0,highlightthickness=0)
+frame_ui_canvas.pack(side=LEFT, fill=BOTH, expand=True)
+
+
+# The actual frame with UI widgets
+frame_ui = Frame(frame_ui_canvas)
+frame_ui_canvas.create_window((0, 0), window=frame_ui, anchor="nw")
+
+# Update scrollregion when contents grow
+def on_configure(event):
+    frame_ui_canvas.configure(scrollregion=frame_ui_canvas.bbox("all"))
+frame_ui.bind("<Configure>", on_configure)
+
+# Scroll function
+def _on_mousewheel(event):
+    frame_ui_canvas.yview_scroll(int(-1 * (event.delta / scroll_sensitivity)), "units")
+
+# Bind only when mouse is over the canvas
+def _bind_to_mousewheel(event):
+    frame_ui_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+def _unbind_from_mousewheel(event):
+    frame_ui_canvas.unbind_all("<MouseWheel>")
+
+frame_ui.bind("<Enter>", _bind_to_mousewheel)
+frame_ui.bind("<Leave>", _unbind_from_mousewheel)
+
+
+
+nb_prepro = ttk.Notebook(frame_ui,style="TNotebook")
+nb_prepro.pack(side=TOP,anchor="w",fill='both', expand=True)
+
+frame_preprocess = Frame(nb_prepro,pady=20)
+nb_prepro.add(frame_preprocess, text='Pre-processings')
+
+
+# Notebook for MRI and processing info
+frame_info = Frame(nb_prepro, pady=20)
+nb_prepro.add(frame_info, text='Image Info')
+frame_info.rowconfigure(0, weight=1)
+frame_info.columnconfigure(0, weight=1)
+
+# Text widget
+info_txt = Text(frame_info, wrap="word", width=60, bg="black")
+info_txt.grid(row=0, column=0, sticky="nsew")
+
+# Configure tags 
+info_txt.tag_configure("info", font=("Helvetica", 14), foreground="white")
+info_txt.tag_configure("title", font=("Helvetica", 16, "bold"), foreground="yellow")
+info_txt.tag_configure("warn", font=("Helvetica", 14), foreground="red")
+
+
+nb_analysis = ttk.Notebook(frame_ui,style="TNotebook")
+nb_analysis.pack(side=TOP,anchor="w")
+
+# Make a frame for perfusion input
+frame_perf = Frame(nb_analysis,pady=20)
+nb_analysis.add(frame_perf, text='DSC Analysis')
+
+
+# Make a frame for CVR input
+frame_cvr = Frame(nb_analysis,pady=20)
+nb_analysis.add(frame_cvr, text='CVR Analysis')
+
+frame_chkbt = Frame(frame_ui)
+frame_chkbt.pack(side=TOP,anchor="w",padx=10, pady=10)
+
+
+# ==== ROI FRAME ======================================================================
+#======================================================================================
+
+# Make a frame for ROI frame
+frame_roi = Frame(nb_analysis,pady=20)
+#nb_analysis.add(frame_seg, text='Segmentation')
+nb_analysis.add(frame_roi, text='ROI')
+
+# Make 2 frames one for the ROI controls and one for the results table
+frame_roi_controls = Frame(frame_roi)
+frame_roi_controls.grid(row=2, column=0, columnspan=6, sticky=W)
+
+frame_roi_table = Frame(frame_roi)
+frame_roi_table.grid(row=3, column=0, columnspan=6, sticky=W)
+
+# Load ROI
+lb_load_roi = Label(frame_roi_controls, text="Load ROI")
+lb_load_roi.grid( row=1,column=0,sticky=W, padx=(10,0))
+
+bnt_load_roi = Button(frame_roi_controls, text="File", justify='center',command=load_roi,width=bt_small,font=bt_font)
+bnt_load_roi.grid(row=1, column=1, sticky=W, padx=(10,0))
+
+# Draw ROI
+lb_draw_roi = Label(frame_roi_controls, text="Draw ROI")
+lb_draw_roi.grid(row=2,column=0,sticky=W, padx=(10,0))
+
+# Insert a checkbutton to activate ROI drawing
+chk_roi_state = BooleanVar()
+chk_roi_state.set(False) #set check state
+chk_roi = Checkbutton(frame_roi_controls, text='',command=activate_draw_roi,variable=chk_roi_state)
+chk_roi.grid(row=2,column=1, sticky=W,padx=(10,0))
+
+# ROI type
+tkvar_roi_type = StringVar()
+choices_roi_type = ['Closed','Opened']
+menu_roi_type = OptionMenu(frame_roi_controls, tkvar_roi_type, *choices_roi_type)
+tkvar_roi_type.set('Closed') # set the default option
+menu_roi_type.grid(row=2,column=3,sticky=W,padx=(10,0))
+menu_roi_type.config(width=4)
+
+# ROI number
+tkvar_roi_num = StringVar()
+choices_roi_num = ['Fill with','0','1','2','3 ','4','5','6']
+menu_roi_num = OptionMenu(frame_roi_controls, tkvar_roi_num, *choices_roi_num)
+tkvar_roi_num.set('Fill with') # set the default option
+menu_roi_num.grid(row=2,column=4,sticky=W,padx=(10,0))
+menu_roi_num.config(width=4)
+
+bnt_roi = Button(frame_roi_controls, text="save", justify='center',command=roi_save,width=bt_small,font=bt_font)
+bnt_roi.grid(row=2,column=5,sticky=W, padx=(10,0))
+
+bnt_roi = Button(frame_roi_controls, text="clean", justify='center',command=roi_clean,width=bt_small,font=bt_font)
+bnt_roi.grid(row=2,column=6,sticky=W, padx=(10,0))
+
+# Calc average metrics within ROIs
+lb_calc_roi = Label(frame_roi_controls, text="Ave. ROI")
+lb_calc_roi.grid( row=3,column=0,sticky=W, padx=(10,0))
+
+bnt_calc_roi = Button(frame_roi_controls, text="calc", justify='center',command=roi_ave,width=bt_small,font=bt_font)
+bnt_calc_roi.grid(row=3,column=1,sticky=W, padx=(10,0))
+
+#  Create tree_roi  table ===========================================
+
+
+tree_roi = ttk.Treeview(
+    frame_roi_table, 
+    columns=('metric', 'roi1', 'roi2', 'roi3', 'roi4','roi5','roi6'), 
+    show='headings', 
+    height=8
+)
+
+#s = ttk.Style()
+#s.configure('Treeview.Heading', background='black', foreground='dark blue')
+
+
+# Set up the column headings
+tree_roi.heading('metric', text='Metric')
+tree_roi.heading('roi1', text="🟥ROI1")
+tree_roi.heading('roi2', text="🟩ROI2")
+tree_roi.heading('roi3', text="🟦ROI3")
+tree_roi.heading('roi4', text="🟧ROI4")
+tree_roi.heading('roi5', text="🟪ROI5")
+tree_roi.heading('roi6', text="🟨ROI6")
+
+# Set up the column widths and alignment
+tree_roi.column('metric', width=int(metric_width), anchor='w')
+tree_roi.column('roi1', width=value_width, anchor='center')
+tree_roi.column('roi2', width=value_width, anchor='center')
+tree_roi.column('roi3', width=value_width, anchor='center')
+tree_roi.column('roi4', width=value_width, anchor='center')
+tree_roi.column('roi5', width=value_width, anchor='center')
+tree_roi.column('roi6', width=value_width, anchor='center')
+tree_roi.grid(row=0,column=0,sticky=W, padx=(10,0),pady=(20,0),columnspan=6)
+
+
+tree_roi.tag_configure('red_col', foreground='red')
+tree_roi.tag_configure('green_col', foreground='green')
+tree_roi.tag_configure('blue_col', foreground='blue')
+tree_roi.tag_configure('orange_col', foreground='orange')
+tree_roi.tag_configure('purple_col', foreground='purple')
+tree_roi.tag_configure('yellow_col', foreground='#b58900')
+
+
+# Make a frame for Segmentation
+frame_seg = Frame(nb_analysis,pady=20)
+nb_analysis.add(frame_seg, text='Segmentation')
+
 # Create the Treeview in your frame
 tree = ttk.Treeview(
     frame_seg, 
     columns=('metric', 'rgm', 'rwm', 'lgm', 'lwm'), 
     show='headings', 
-    height=6
+    height=8
 )
 
 # Set up the column headings
@@ -2875,14 +4077,15 @@ tree.heading('lgm', text='L GM')
 tree.heading('lwm', text='L WM')
 
 # Set up the column widths and alignment
-tree.column('metric', width=200, anchor='w')
-tree.column('lgm', width=80, anchor='center')
-tree.column('lwm', width=80, anchor='center')
-tree.column('rgm', width=80, anchor='center')
-tree.column('rwm', width=80, anchor='center')
+seg_width = 80
+tree.column('metric', width=metric_width, anchor='w')
+tree.column('lgm', width=seg_width, anchor='center')
+tree.column('lwm', width=seg_width, anchor='center')
+tree.column('rgm', width=seg_width, anchor='center')
+tree.column('rwm', width=seg_width, anchor='center')
 
 # Place the Treeview widget in the layout
-tree.grid(row=5, column=0, columnspan=2, sticky=W, padx=(10, 40), pady=10)
+tree.grid(row=5, column=0, columnspan=4, sticky=W, padx=(10, 40), pady=10)
 # Updated seg_ave function
 def seg_ave():
     
@@ -2890,27 +4093,27 @@ def seg_ave():
     for dir, fname, label in [
         (dir_cvr,'bold.nii.gz', 'BOLD(%)'),
         (dir_cvr,'slope.nii.gz', 'CVR (%/Δstim)'),
-        (dir_cvr,'correlation.nii.gz', 'CORR'),
+        (dir_cvr,'correlation.nii.gz', 'R'),
         (dir_cvr,'CNR.nii.gz', 'CNR'),
         (dir_cvr,'lag.nii.gz', 'LAG(s)'),
         (dir_cvr,'tau.nii.gz', 'TAU(s)'),
         (dir_relative_modfree,'auc.nii.gz', 'AUC'),
-        (dir_relative_modfree,'max.nii.gz', 'MAX'),
+        (dir_relative_modfree,'max.nii.gz', 'CMAX'),
         (dir_relative_modfree,'bat.nii.gz', 'BAT(s)'),
         (dir_relative_modfree,'fwhm.nii.gz', 'FWHM(s)'),
         (dir_relative_modfree,'ttp.nii.gz', 'TTP(s)'),
         (dir_relative_gamvar,'auc.nii.gz', 'Gamvar AUC'),
-        (dir_relative_gamvar,'max.nii.gz', 'Gamvar MAX'),
-        (dir_relative_gamvar,'bat.nii.gz', 'Gamvar BAT(s)'),
-        (dir_relative_gamvar,'fwhm.nii.gz', 'Gamvar FWHM(s)'),
-        (dir_relative_gamvar,'ttp.nii.gz', 'Gamvar TTP(s)'),
-        (dir_quantitative_decon,'cbv.nii.gz', 'CBV(mL/100g/min)'),
+        (dir_relative_gamvar,'max.nii.gz', 'GV CMAX'),
+        (dir_relative_gamvar,'bat.nii.gz', 'GV BAT(s)'),
+        (dir_relative_gamvar,'fwhm.nii.gz', 'GV FWHM(s)'),
+        (dir_relative_gamvar,'ttp.nii.gz', 'GV TTP(s)'),
+        (dir_quantitative_decon,'cbv.nii.gz', 'rCBV'),
         (dir_quantitative_decon,'mtt.nii.gz', 'MTT(s)'),
         (dir_quantitative_decon,'Tmax.nii.gz', 'Tmax(s)'),
-        (dir_quantitative_decon,'cbf.nii.gz', 'CBF'),
-        (dir_quantitative_decon,'cbf_cvt.nii.gz', 'CBF (CBV/MTT)'),
-        (dir_quantitative_expon,'mtt.nii.gz', 'Residue Exp: MTT(s)'),
-        (dir_quantitative_expon,'cbf.nii.gz', 'Residue Exp: CBF (CBV/MTT)'),
+        (dir_quantitative_decon,'cbf.nii.gz', 'rCBF'),
+        (dir_quantitative_decon,'cbf_cvt.nii.gz', 'rCBV/MTT'),
+        (dir_quantitative_expon,'mtt.nii.gz', 'Exp MTT(s)'),
+        (dir_quantitative_expon,'cbf.nii.gz', 'Exp rCBV/MTT'),
         
     ]:
         fullfile = os.path.join(dir, fname)
@@ -2941,13 +4144,13 @@ def copy_tree_to_clipboard():
     frame_seg.clipboard_append(table_text)
     frame_seg.update()  # now it stays on the clipboard after window is closed
 
-bt_func = Button(frame_seg, text="seg",command=seg_calc,width=bt_small)
+bt_func = Button(frame_seg, text="seg",command=seg_calc,width=bt_small,font=bt_font)
 bt_func.grid(column=0, row=2,sticky=W,padx=(10,0))
 
-bt_anat = Button(frame_seg, text="avg",command=seg_ave,width=bt_small)
+bt_anat = Button(frame_seg, text="avg",command=seg_ave,width=bt_small,font=bt_font)
 bt_anat.grid(column=0, row=2,sticky=W,padx=(60,0))
 
-bt_copy = Button(frame_seg, text="copy",command=copy_tree_to_clipboard,width=bt_small)
+bt_copy = Button(frame_seg, text="copy",command=copy_tree_to_clipboard,width=bt_small,font=bt_font)
 bt_copy.grid(column=0, row=2,sticky=W,padx=(110,0))
 
 
@@ -3120,7 +4323,6 @@ def open_perfusion_export_window():
     
     
     # Column 0
-    print("================================================",dir_relative_modfree)
     Label(window_perfusion, text="Model Free\nParameters\n",justify=LEFT).grid(column=0, row=0, sticky=NW, padx=(20, 0), pady=(10, 10))
     for i, (text, keyword, var) in enumerate(perfusion_vars_col1):
         if not os.path.isdir(dir_relative_modfree) or not any(keyword in f for f in os.listdir(dir_relative_modfree)):
@@ -3243,13 +4445,13 @@ def open_cvr_export_window():
 # --- Buttons in the different frames of the UI
 
 bt_export_preprocess = Button(frame_preprocess, text="Export ...", command=open_preprocess_export_window, fg="blue")
-bt_export_preprocess.grid(column=0,row=40, sticky=W, padx=(0,0),pady=(10,0))
+bt_export_preprocess.grid(column=0,row=40, sticky=W, padx=10,pady=(10,0))
 
 bt_export_perfusion = Button(frame_perf, text="Export ...", command=open_perfusion_export_window, fg="blue")
-bt_export_perfusion.grid(column=0,row=40, sticky=W, padx=0, pady=10)
+bt_export_perfusion.grid(column=0,row=40, sticky=W, padx=10, pady=10)
 
 bt_export_cvr = Button(frame_cvr, text="Export ...", command=open_cvr_export_window, fg="blue",bg="grey")
-bt_export_cvr.grid(column=0,row=40, sticky=W, padx=0, pady=10)
+bt_export_cvr.grid(column=0,row=40, sticky=W, padx=10, pady=10)
 
 
 
@@ -3266,7 +4468,7 @@ current_tab_index = nb_analysis.index("current")
     # Get the text of the currently selected tab
 current_tab_text = nb_analysis.tab(current_tab_index, "text")
 
-bt_adv_opt = Button(frame_ui, text="Options...",command=open_advanced_options,bg="red",fg="blue")
+bt_adv_opt = Button(frame_ui, text="AOW",command=open_advanced_options,bg="red",fg="blue")
 bt_adv_opt.pack(side=TOP,anchor="w",padx=10, pady=10)
 
 
@@ -3278,17 +4480,6 @@ frame_opts.pack(side=TOP,anchor="w")
 text_widget = Text(frame_opts, wrap='word', width=70, height=20,highlightcolor="blue")
 text_widget.pack()
 
-
-# # Create the options file if it does not exist yet
-# filename = os.path.join(maindir, 'PerfMRI_advanced_options.txt')
-# if not os.path.exists(filename):
-#     set_advanced_options()
-# # Load the current content of the file into the text widget
-# with open(filename, 'r') as file:
-#     content = file.read()
-#     text_widget.insert('1.0', content)
-
-# Function to save the content back to the file
 def save_options():
     filename = os.path.join(dir_perfmri, 'PerfMRI_advanced_options.txt')
     new_content = text_widget.get('1.0', 'end-1c')
@@ -3317,13 +4508,17 @@ reset_button.pack(side=LEFT)
 frame_opts.pack_forget()
 
 
+
 # Make a frame for messages at bottom
 frame_path = Frame(window)
 frame_path.pack(side=BOTTOM, padx=10, pady=10)
-anatdir = Label(frame_path, text='', fg="white")
+anatdir = Label(frame_path, text="Anatomical:",fg="white",bg='black',relief='flat')
 anatdir.grid(column=0, row=0,sticky=W,padx=(10,0),columnspan=15)
-funcdir  = Label(frame_path, text='', fg="white")
+funcdir  = Label(frame_path, text='Functional: ', fg="white",bg='black',relief='flat')
 funcdir.grid(column=0, row=1,sticky=W,padx=(10,0),columnspan=15)
+
+
+
 
 # Setup the rows numbers for the first panel
 row_dicom2nifti = 1
@@ -3332,12 +4527,6 @@ row_input_anat = 3
 row_slicetime = 4
 row_space_realign = 5
 row_scale = 6
-
-# Setup the rows numbers for the second panel
-row_relative_map = 1
-row_aif = 2
-row_quantitative_map = 3
-
 
 # lb means label
 # bt means button
@@ -3355,93 +4544,123 @@ lb_convert = Label(frame_preprocess, text="Dicom2nifti")
 lb_convert.grid(column=0, row=2,sticky=W,padx=(10,40))
 
 bt_func = Button(frame_preprocess, text="func",command=convert_func,width=bt_small)
-bt_func.grid(column=1, row=2,sticky=W,padx=(0,0))
+bt_func.grid(column=1, row=2,sticky=W)
 
-bt_anat = Button(frame_preprocess, text="anat",command=convert_anat,width=bt_small)
-bt_anat.grid(column=1, row=2,sticky=W,padx=(50,0))
+bt_anat = Button(frame_preprocess, text="anat",command=convert_anat,width=bt_small,font=bt_font)
+bt_anat.grid(column=2, row=2,sticky=W)
 
 # LINE 02
 # Choose FUNC and ANAT files
 lb_func_pick = Label(frame_preprocess, text="Input nifti")
 lb_func_pick.grid(column=0, row=3,sticky=W,padx=(10,40))
 
-bnt_choose_funcfile = Button(frame_preprocess, text="func",command=click_choose_funcfile,width=bt_small)
-bnt_choose_funcfile.grid(column=1, row=3,sticky=W,padx=(0,0))
+bnt_choose_funcfile = Button(frame_preprocess, text="func",command=click_choose_funcfile,width=bt_small,font=bt_font)
+bnt_choose_funcfile.grid(column=1, row=3,sticky=W)
 
-bnt_choose_anatfile = Button(frame_preprocess, text="anat",command=click_choose_anatfile,width=bt_small)
-bnt_choose_anatfile.grid(column=1, row=3,sticky=W,padx=(50,0))
+bnt_choose_anatfile = Button(frame_preprocess, text="anat",command=click_choose_anatfile,width=bt_small,font=bt_font)
+bnt_choose_anatfile.grid(column=2, row=3,sticky=W)
 
-bt_load_raw = Button(frame_preprocess, text="load",command=press_load_raw,width=bt_small,fg="black",activeforeground="red")
-bt_load_raw.grid(column=1, row=3,sticky=W,padx=(100,0))
-
-# Mask brain
-lb_mask_brain = Label(frame_preprocess, text="Mask Brain")
-lb_mask_brain.grid(column=0, row=4, sticky=W, padx=(10,40))
-
-# Choose slice time ordering
-tkvar_masktype = StringVar()
-choices_masktype = ['Automask','Use Zeros']
-menu_masktype = OptionMenu(frame_preprocess, tkvar_masktype, *choices_masktype)
-tkvar_masktype.set('Automask') # set the default option
-menu_masktype.grid(column = 1,row=4,sticky=W, padx=(0,0))
-menu_masktype.config(width=8)
-
-bnt_mask_brain = Button(frame_preprocess, text="calc", justify='center',command=mask_brain,width=bt_small)
-bnt_mask_brain.grid(column=1, row=4, sticky=W, padx=(120,0))
+bt_load_raw = Button(frame_preprocess, text="load",command=press_load_raw,width=bt_small,font=bt_font,fg="black",activeforeground="red")
+bt_load_raw.grid(column=3, row=3,sticky=W)
 
 # Trim the signal
 lb_trim_signal = Label(frame_preprocess, text="Trim Signal")
-lb_trim_signal.grid(column=0, row=5,sticky=W,padx=(10,40))
+lb_trim_signal.grid(column=0, row=4,sticky=W,padx=(10,40))
 
-bnt_set_vlines = Button(frame_preprocess, text="set", justify='center',command=set_vlines,width=bt_small)
-bnt_set_vlines.grid(column=1, row=5, sticky=W, padx=(0,0))
+bnt_set_vlines = Button(frame_preprocess, text="set", justify='center',command=set_vlines,width=bt_small,font=bt_font)
+bnt_set_vlines.grid(column=1, row=4, sticky=W)
 
-bnt_trim_signal = Button(frame_preprocess, text="calc",command=trim_signal,width=bt_small)
-bnt_trim_signal.grid(column=1, row=5,sticky=W,padx=(50,0))
+bnt_trim_signal = Button(frame_preprocess, text="calc",command=press_trim_signal,width=bt_small,font=bt_font)
+bnt_trim_signal.grid(column=2, row=4,sticky=W)
 
 
 # Slice Time correction
 lb_slicetime = Label(frame_preprocess, text="Time   Realign")
-lb_slicetime.grid(column=0, row=6,sticky=W,padx=(10,10))
+lb_slicetime.grid(column=0, row=5,sticky=W,padx=(10,10))
 
 # Choose slice time ordering
 tkvar_slicetime = StringVar()
 choices_slicetime = ['Alternative+','Sequential+','Text file...']
 menu_slicetime = OptionMenu(frame_preprocess, tkvar_slicetime, *choices_slicetime)
 tkvar_slicetime.set('Alternative+') # set the default option
-menu_slicetime.grid(row=6, column = 1, sticky=W, padx=(0,0))
+menu_slicetime.grid(row=5, column=1, sticky=W,columnspan=2)
 menu_slicetime.config(width=8)
 
 # Attach the trace to the StringVar, monitoring changes
 tkvar_slicetime.trace('w', on_slicetime_change)
-bt_slicetime = Button(frame_preprocess, text="calc",command=press_time_realign,width=bt_small)
-bt_slicetime.grid(column=1, row=6,sticky=W,padx=(120,0))
+bt_slicetime = Button(frame_preprocess, text="calc",command=press_time_realign,width=bt_small,font=bt_font)
+bt_slicetime.grid(column=3, row=5,sticky=W)
 
 
 # Volume re-registration
 lb_space_realign = Label(frame_preprocess, text="Space Realign")
-lb_space_realign.grid(column=0, row=8,sticky=W,padx=(10,10))
+lb_space_realign.grid(column=0, row=6,sticky=W,padx=(10,10))
 
 # Calc 
-bt_slicetime = Button(frame_preprocess, text="calc",command=press_space_realign,width=bt_small)
-bt_slicetime.grid(column=1, row=8,sticky=W,padx=(120,0))
+bt_slicetime = Button(frame_preprocess, text="calc",command=press_space_realign,width=bt_small,font=bt_font)
+bt_slicetime.grid(column=1, row=6,sticky=W)
+
+# View motion parameters 
+bt_slicetime = Button(frame_preprocess, text="view",command=press_view_motion,width=bt_small,font=bt_font)
+bt_slicetime.grid(column=2, row=6,sticky=W)
+
+# Spatial smoothing
+lb_spatial_smoothing = Label(frame_preprocess, text="Smooth Space")
+lb_spatial_smoothing.grid(column=0, row=7, sticky=W, padx=(10,10))
+
+lb_fwhm = Label(frame_preprocess, text="FWHM (mm)")
+lb_fwhm.grid(column=1, row=7, sticky=W,columnspan=2)
+
+sb_fwhm = Spinbox(frame_preprocess, from_=0, to=20,increment=0.1,width=3)  # You can set a range, like 0 to 20
+sb_fwhm.grid(row=7, column = 3, sticky=W)
+
+bt_spatial_smoothing = Button(frame_preprocess, text="calc", justify='center',command=press_spatial_smoothing,width=bt_small,font=bt_font,fg="black",activeforeground="red")
+bt_spatial_smoothing.grid(column=4, row=7, sticky=W)
+
+# Temporal smoothing
+lb_temporal_smoothing = Label(frame_preprocess, text="Smooth Time")
+lb_temporal_smoothing.grid(column=0, row=8, sticky=W, padx=(10,10))
+
+lb_fwhm_t = Label(frame_preprocess, text="FWHM(s)")
+lb_fwhm_t.grid(column=1, row=8, sticky=W,columnspan=2)
+
+sb_fwhm_t = Spinbox(frame_preprocess, from_=0, to=20,increment=0.1,width=3)  # You can set a range, like 0 to 20
+sb_fwhm_t.grid(row=8, column = 3, sticky=W)
+
+bt_temporal_smoothing = Button(frame_preprocess, text="calc", justify='center',command=press_temporal_smoothing,width=bt_small,font=bt_font,fg="black",activeforeground="red")
+bt_temporal_smoothing.grid(column=4, row=8, sticky=W)
+
+# Mask brain
+lb_mask_brain = Label(frame_preprocess, text="Mask Brain")
+lb_mask_brain.grid(column=0, row=9, sticky=W, padx=(10,40))
+
+# Choose Masking option
+tkvar_masktype = StringVar()
+choices_masktype = ['Automask','Use Zeros']
+menu_masktype = OptionMenu(frame_preprocess, tkvar_masktype, *choices_masktype)
+tkvar_masktype.set('Automask') # set the default option
+menu_masktype.grid(column = 1,row=9,sticky=W,columnspan=2)
+menu_masktype.config(width=8)
+
+bnt_mask_brain = Button(frame_preprocess, text="calc", justify='center',command=press_mask_brain,width=bt_small,font=bt_font)
+bnt_mask_brain.grid(column=3, row=9, sticky=W)
 
 
 # Detrend signal
-lb_detrend = Label(frame_preprocess, text="Detrend Signal")
-lb_detrend.grid(column=0, row=10,sticky=W,padx=(10,10))
+lb_detrend = Label(frame_preprocess, text="Drift Correction")
+lb_detrend.grid(column=0, row=10,sticky=W,padx=(10,40))
 
 # Polynomial
 tkvar_poly = StringVar()
 choices_poly = ['Polynomial #','1','2','3 ','4','5','6','7','8','9','10','11','12']
 menu_poly = OptionMenu(frame_preprocess, tkvar_poly, *choices_poly)
 tkvar_poly.set('Polynomial #') # set the default option
-menu_poly.grid(row=10, column = 1, sticky=W, padx=(0,0),pady=(2,0))
+menu_poly.grid(row=10,column=1,sticky=W,columnspan=2)
 menu_poly.config(width=8)
 
 
-bt_detrend = Button(frame_preprocess, text="calc",command=press_detrend_signal,width=bt_small,fg="black",activeforeground="red")
-bt_detrend.grid(column=1, row=10,sticky=W,padx=(120,0))
+bt_detrend = Button(frame_preprocess, text="calc",command=press_detrend_signal,width=bt_small,font=bt_font,fg="black",activeforeground="red")
+bt_detrend.grid(column=3, row=10,sticky=W)
 
 
 #Scale signal
@@ -3450,97 +4669,114 @@ lb_imtype.grid(column=0, row=12,sticky=W,padx=(10,10))
 
 # Choose between Signal or Concentration time series
 tkvar_imtype = StringVar()
-choices_imtype = ['Concentration','% baseline','% mean']
+choices_imtype = ['Concentration','% baseline','% mean',"% Percentile"]
 menu_imtype = OptionMenu(frame_preprocess, tkvar_imtype, *choices_imtype)
 tkvar_imtype.set('Concentration') # set the default option
-menu_imtype.grid(row=12, column = 1, sticky=W, padx=(0,0),pady=(2,0))
+menu_imtype.grid(row=12, column = 1, sticky=W,columnspan=2)
 menu_imtype.config(width=8)
 
-bt_scale_signal = Button(frame_preprocess, text="calc",command=press_scale_signal,width=bt_small,fg="black",activeforeground="red")
-bt_scale_signal.grid(column=1, row=12,sticky=W,padx=(120,0))
+bt_scale_signal = Button(frame_preprocess, text="calc",command=press_scale_signal,width=bt_small,font=bt_font,fg="black",activeforeground="red")
+bt_scale_signal.grid(column=3, row=12,sticky=W)
 
-# Spatial smoothing
-lb_spatial_smoothing = Label(frame_preprocess, text="Spatial Smoothing")
-lb_spatial_smoothing.grid(column=0, row=14, sticky=W, padx=(10,10))
 
-lb_fwhm = Label(frame_preprocess, text="FWHM (mm)")
-lb_fwhm.grid(column=1, row=14, sticky=W, padx=(0,10))
-
-sb_fwhm = Spinbox(frame_preprocess, from_=0, to=20,increment=0.1,width=3)  # You can set a range, like 0 to 20
-sb_fwhm.grid(row=14, column = 1, sticky=W, padx=(80,0),pady=(2,0))
-
-bt_spatial_smoothing = Button(frame_preprocess, text="calc", justify='center',command=press_spatial_smoothing,width=bt_small,fg="black",activeforeground="red")
-bt_spatial_smoothing.grid(column=1, row=14, sticky=W, padx=(150,0))
-
-# Temporal smoothing
-lb_temporal_smoothing = Label(frame_preprocess, text="Temporal Smoothing")
-lb_temporal_smoothing.grid(column=0, row=16, sticky=W, padx=(10,10))
-
-lb_fwhm_t = Label(frame_preprocess, text="FWHM(s)")
-lb_fwhm_t.grid(column=1, row=16, sticky=W, padx=(0,10))
-
-sb_fwhm_t = Spinbox(frame_preprocess, from_=0, to=20,increment=0.1,width=3)  # You can set a range, like 0 to 20
-sb_fwhm_t.grid(row=16, column = 1, sticky=W, padx=(80,0),pady=(2,0))
-
-bt_temporal_smoothing = Button(frame_preprocess, text="calc", justify='center',command=press_temporal_smoothing,width=bt_small,fg="black",activeforeground="red")
-bt_temporal_smoothing.grid(column=1, row=16, sticky=W, padx=(150,0))
 
 # LINE 06
 # Relative perfusion
 
 lb_relperf = Label(frame_perf, text="Relative Perfusion",justify='left')
-lb_relperf.grid(row=row_relative_map,column=0,sticky=W,padx=(10,40))
-
-bt_calc_relperf = Button(frame_perf, text="calc",command=press_calc_relperf,width=bt_small,activeforeground="red")
-bt_calc_relperf.grid(column=1, row=row_relative_map,sticky=W, padx=(120,0))
+lb_relperf.grid(row=0,column=0,sticky=W,padx=(10,40))
 
 relperf_method = StringVar()
 choices = ['Model Free','GamVar-afni']
 protocol_menu = OptionMenu(frame_perf, relperf_method, *choices)
 relperf_method.set('Model Free') # set the default option
-protocol_menu.grid(row=row_relative_map, column=1, sticky=W, columnspan=2, padx=(0,0))
+protocol_menu.grid(row=0, column=1, sticky=W, columnspan=2, padx=(0,0))
 protocol_menu.config(width=8)
 
+bt_calc_relperf = Button(frame_perf, text="calc",command=press_calc_relperf,width=bt_small,font=bt_font,activeforeground="red")
+bt_calc_relperf.grid(column=3, row=0,sticky=W, padx=(0,0))
 
-bt_view_relperf = Button(frame_perf, text="view",command=view_relperf,width=bt_small,fg="black")
-bt_view_relperf.grid(column=1, row=row_relative_map,sticky=W, padx=(170,0))
+bt_view_relperf = Button(frame_perf, text="view",command=view_relperf,width=bt_small,font=bt_font,fg="black")
+bt_view_relperf.grid(column=4, row=0,sticky=W, padx=(0,0))
+
+lb_corr_time = Label(frame_perf, text="Correct time maps",justify='left')
+lb_corr_time.grid(row=1,column=0,sticky=W,padx=(10,40))
+
+# Choose slice time ordering
+tkvar_correct_time = StringVar()
+choices_correct_time = ['Alternative+','Sequential+','Text file...']
+menu_correct_time = OptionMenu(frame_perf, tkvar_correct_time, *choices_correct_time)
+tkvar_correct_time.set('Alternative+') # set the default option
+menu_correct_time.grid(row=1, column=1, sticky=W,columnspan=2)
+menu_correct_time.config(width=8)
+
+# Attach the trace to the StringVar, monitoring changes
+tkvar_correct_time.trace('w', on_correct_time_change)
+bt_correct_time = Button(frame_perf, text="calc",command=press_correct_time,width=bt_small,font=bt_font)
+bt_correct_time.grid(column=3, row=1,sticky=W)
+
+
+# Blank line
+Label(frame_perf, text= "",justify='left').grid(row=2,column=0,sticky=W,padx=(10,40))
+
+# Quantitative perfusion
+lb_quantitative = Label(frame_perf, text= "Quantitative Perfusion",justify='left')
+lb_quantitative.grid(row=3,column=0,sticky=W,padx=(10,40))
+
+
+# Switch data to "original conc" , gammavar fit or gammavar approx
+# Since I had some bug with gammavar approx, I revoved the option to switch data to
+# This will simplyfy the flow for now.  If Relative perf = Model free, aif is based on model free metrics and deconvolution based on "raw data" signal
+# If Relative perf = Gamma-var afni, aif is based on the gamma var fit parameters and the deconvolution will be based on the gammavar fit signal
+lb_switch_data = Label(frame_perf, text= "Using dataset",justify='left')
+lb_switch_data.grid(row=4,column=0,sticky=W,padx=(10,40))
+
+switch_data_method = StringVar()
+choices = ['Original','GamVar-afni']
+protocol_menu = OptionMenu(frame_perf, switch_data_method, *choices)
+switch_data_method.set('Original') # set the default option
+protocol_menu.grid(row=4, column=1, sticky=W, columnspan=2, padx=(0,0))
+protocol_menu.config(width=8)
+
+bt_calc_switch_data = Button(frame_perf, text="load",command=press_switch_data,width=bt_small,font=bt_font,activeforeground="red")
+bt_calc_switch_data.grid(column=3, row=4,sticky=W, padx=(0,0))
+
+
 
 
 # LINE 07
 lb_aif = Label(frame_perf, text="Arterial Input Function")
-lb_aif.grid(column=0, row=row_aif,sticky=W,padx=(10,10))
+lb_aif.grid(column=0, row=7,sticky=W,padx=(10,10))
 lb_nvox = Label(frame_perf, text="N. voxels")
-lb_nvox.grid(column=1, row=row_aif,sticky=W,padx=(0,0))
+lb_nvox.grid(column=1, row=7,sticky=W,padx=(0,0))
 
 txt_nvox = Text(frame_perf,width=3,height=1,font='red',relief=SUNKEN,borderwidth=2)
-txt_nvox.grid(column=1, row=row_aif,sticky=W,padx=(75,0))
+txt_nvox.grid(column=2, row=7,sticky=W,padx=(0,0))
 
-bt_calc_aif = Button(frame_perf, text="calc",command=calc_aif,width=bt_small,fg="black")
-bt_calc_aif.grid(column=1, row=row_aif,sticky=W, padx=(120,0),pady=(0,0))
+bt_calc_aif = Button(frame_perf, text="calc",command=calc_aif,width=bt_small,font=bt_font,fg="black")
+bt_calc_aif.grid(column=3, row=7,sticky=W, padx=(0,0),pady=(0,0))
 
-#bt_save_aif = Button(frame_perf, text="save",command=save_aif,width=bt_small,fg="black")
-#bt_save_aif.grid(column=1, row=row_aif,sticky=W, padx=(170,0))
 
 
 # LINE 08
 # Quantitative perfusion
-lb_quantperf = Label(frame_perf, text="Quantitative Perfusion",justify='left')
-lb_quantperf.grid(row=row_quantitative_map,column=0,sticky=W,padx=(10,40))
+lb_quantperf = Label(frame_perf, text="Deconvolution",justify='left')
+lb_quantperf.grid(row=10,column=0,sticky=W,padx=(10,40))
 
-bt_calc_quantperf = Button(frame_perf, text="calc",command=press_calc_quantperf,width=bt_small,fg="black",activeforeground="red")
-bt_calc_quantperf.grid(column=1, row=row_quantitative_map,sticky=W, padx=(120,0))
 
 quant_method = StringVar()
 quant_choices = ['SVD','oSVD','Residue Exp']
 quant_menu = OptionMenu(frame_perf, quant_method, *quant_choices)
-quant_method.set('oSVD') # set the default option
-quant_menu.grid(row=row_quantitative_map, column=1, sticky=W, columnspan=2, padx=(0,0))
+quant_method.set('SVD') # set the default option
+quant_menu.grid(row=10, column=1, sticky=W, columnspan=2, padx=(0,0))
 quant_menu.config(width=8)
 
+bt_calc_quantperf = Button(frame_perf, text="calc",command=press_calc_quantperf,width=bt_small,font=bt_font,fg="black",activeforeground="red")
+bt_calc_quantperf.grid(column=3, row=10,sticky=W, padx=(0,0))
 
 # Button to show quantitative perfusion maps
-bnt_view_quantperf = Button(frame_perf, text="view",command=view_quantperf,width=bt_small,fg="black")
-bnt_view_quantperf.grid(column=1, row=row_quantitative_map,sticky=W, padx=(170,0))
+bnt_view_quantperf = Button(frame_perf, text="view",command=view_quantperf,width=bt_small,font=bt_font,fg="black")
+bnt_view_quantperf.grid(column=4, row=10,sticky=W, padx=(0,0))
 
 
 
@@ -3587,6 +4823,17 @@ chk_flipref_state.set(False) #set check state
 chk_flipref = Checkbutton(frame_chkbt, text='Flip ref',command=flip_ref,var=chk_flipref_state)
 chk_flipref.grid(column=0, row=3,sticky=W,padx=(10,0),pady=(0,0),columnspan=2)
 
+# Show/Hide cross
+chk_cross_state = BooleanVar()
+chk_cross_state.set(True) #set check state
+chk_cross = Checkbutton(frame_chkbt, text='Cross',command=view_cross,var=chk_cross_state)
+chk_cross.grid(column=0, row=3,sticky=W,padx=(150,0),pady=(0,0),columnspan=2)
+
+# Show/Hide Label
+chk_label_state = BooleanVar()
+chk_label_state.set(True) #set check state
+chk_label = Checkbutton(frame_chkbt, text='Label',command=view_label,var=chk_label_state)
+chk_label.grid(column=0, row=3,sticky=W,padx=(300,0),pady=(0,0),columnspan=2)
 
 lb_regression = Label(frame_cvr, text="Linear Regression",justify='left')
 lb_regression.grid(row=0,column=0,sticky=W,padx=(10,40))
@@ -3596,85 +4843,87 @@ type_cvr_ref = StringVar()
 choice_cvr_ref = ['Stimulus ...','Enter OFF/ON','Enter ref file']
 menu_cvr_ref = OptionMenu(frame_cvr, type_cvr_ref, *choice_cvr_ref)
 type_cvr_ref.set('Stimulus ...') # set the default option
-menu_cvr_ref.grid(row=0, column=1, sticky=W, columnspan=2, padx=(0,0))
+menu_cvr_ref.grid(row=0, column=1, sticky=W, columnspan=3, padx=(0,0))
 menu_cvr_ref.config(width=8)
 type_cvr_ref.trace('w', calc_cvr_ref)
 
-bt_shift_left = Button(frame_cvr, text="<<",command=press_shift_cvr_ref_left,width=bt_small,activeforeground="red")
-bt_shift_left.grid(column=1, row=0,sticky=W, padx=(120,0))
+bt_shift_left = Button(frame_cvr, text="<<",command=press_shift_cvr_ref_left,width=bt_small,font=bt_font,activeforeground="red")
+bt_shift_left.grid(column=4, row=0,sticky=W)
 
-bt_shift_right = Button(frame_cvr, text=">>",command=press_shift_cvr_ref_right,width=bt_small,padx=1,activeforeground="red")
-bt_shift_right.grid(column=1, row=0,sticky=W, padx=(170,0))
+bt_shift_right = Button(frame_cvr, text=">>",command=press_shift_cvr_ref_right,width=bt_small,font=bt_font,padx=1,activeforeground="red")
+bt_shift_right.grid(column=5, row=0,sticky=W)
 
-bt_calc_regression = Button(frame_cvr, text="calc",command=press_calc_regression,width=bt_small,fg="black")
-bt_calc_regression.grid(column=1, row=0,sticky=W, padx=(220,0))
-bt_view_regression = Button(frame_cvr, text="view",command=press_view_regression,width=bt_small,fg="black")
-bt_view_regression.grid(column=1, row=0,sticky=W, padx=(260,0))
+bt_calc_regression = Button(frame_cvr, text="calc",command=press_calc_regression,width=bt_small,font=bt_font,fg="black")
+bt_calc_regression.grid(column=6, row=0,sticky=W)
+bt_view_regression = Button(frame_cvr, text="view",command=press_view_regression,width=bt_small,font=bt_font,fg="black")
+bt_view_regression.grid(column=7, row=0,sticky=W)
 
 # Define Time windows
-lb_time_window = Label(frame_cvr, text="Average Time-windows")
+lb_time_window = Label(frame_cvr, text="Ave. Time-windows")
 lb_time_window.grid(column=0, row=1,sticky=W,padx=(10,10))
 
 type_bands = StringVar()
 choice_bands = ['Define...','Inputs','Auto']
 menu_bands = OptionMenu(frame_cvr, type_bands, *choice_bands)
 type_bands.set('Define...') # set the default option
-menu_bands.grid(row=1, column=1, sticky=W, columnspan=2, padx=(0,0))
+menu_bands.grid(row=1, column=1, sticky=W, columnspan=2)
 menu_bands.config(width=4)
 type_bands.trace('w', press_define_windows)
 
-bt_move_bands_left = Button(frame_cvr, text="<",command=move_bands_left,width=bt_small,fg="black")
-bt_move_bands_left.grid(column=1, row=1,sticky=W, padx=(80,0),pady=(0,0))
+bt_move_bands_left = Button(frame_cvr, text="<",command=move_bands_left,width=bt_small,font=bt_font,fg="black")
+bt_move_bands_left.grid(column=3, row=1,sticky=W)
 
-bt_move_bands_right = Button(frame_cvr, text=">",command=move_bands_right,width=bt_small,fg="black")
-bt_move_bands_right.grid(column=1, row=1,sticky=W, padx=(120,0),pady=(0,0))
+bt_move_bands_right = Button(frame_cvr, text=">",command=move_bands_right,width=bt_small,font=bt_font,fg="black")
+bt_move_bands_right.grid(column=4, row=1,sticky=W)
 
-bt_shrink_bands = Button(frame_cvr, text="><",command=shrink_bands,width=bt_small,fg="black")
-bt_shrink_bands.grid(column=1, row=1,sticky=W, padx=(160,0),pady=(0,0))
+bt_shrink_bands = Button(frame_cvr, text="><",command=shrink_bands,width=bt_small,font=bt_font,fg="black")
+bt_shrink_bands.grid(column=5, row=1,sticky=W)
 
-bt_dilate_bands = Button(frame_cvr, text="<>",command=dilate_bands,width=bt_small,fg="black")
-bt_dilate_bands.grid(column=1, row=1,sticky=W, padx=(200,0),pady=(0,0))
+bt_dilate_bands = Button(frame_cvr, text="<>",command=dilate_bands,width=bt_small,font=bt_font,fg="black")
+bt_dilate_bands.grid(column=6, row=1,sticky=W)
 
-bt_ave_time = Button(frame_cvr, text="calc",command=calc_ave_time_windows,width=bt_small,fg="black")
-bt_ave_time.grid(column=1, row=1,sticky=W, padx=(240,0),pady=(0,0))
+bt_ave_time = Button(frame_cvr, text="calc",command=press_ave_boluses,width=bt_small,font=bt_font,fg="black")
+bt_ave_time.grid(column=7, row=1,sticky=W)
 
 
 # LINE 07
 # Tau analysis
 
-lb_tau = Label(frame_cvr, text="Tau   analysis",justify='left')
+lb_tau = Label(frame_cvr, text="RT   analysis",justify='left')
 lb_tau.grid(column=0,row=3,sticky=W,padx=(10,40))
 
-box_tau_minmax = Text(frame_cvr,width=8,height=1,font='grey',relief=SUNKEN,borderwidth=2)
+
+
+box_tau_minmax = Text(frame_cvr,height=1,width=time_map_width,relief=SUNKEN,borderwidth=2)
 box_tau_minmax.insert('1.0', 'start=0 end=8 step=0.2')  # Insert default text at the start (line 1, character 0)
-box_tau_minmax.grid(column=1, row=3,sticky=W,padx=(0,0))
+box_tau_minmax.grid(column=1, row=3,sticky=W,columnspan=4)
 
-bt_calc_tau_2d = Button(frame_cvr, text="👁",command=press_calc_tau_2d,width=bt_small,fg="black")
-bt_calc_tau_2d.grid(column=1, row=3,sticky=W, padx=(180,0),pady=(0,0))
+bt_calc_tau_2d = Button(frame_cvr, text="👁",command=press_calc_tau_2d,width=bt_small,font=bt_font,fg="black")
+bt_calc_tau_2d.grid(column=5, row=3,sticky=W)
 
-bt_calc_tau = Button(frame_cvr, text="calc",command=press_calc_tau,width=bt_small,fg="black")
-bt_calc_tau.grid(column=1, row=3,sticky=W, padx=(220,0),pady=(0,0))
+bt_calc_tau = Button(frame_cvr, text="calc",command=press_calc_tau_3d,width=bt_small,font=bt_font,fg="black")
+bt_calc_tau.grid(column=6, row=3,sticky=W)
 
-bt_view_tau = Button(frame_cvr, text="view",command=press_view_tau,width=bt_small,fg="black")
-bt_view_tau.grid(column=1, row=3,sticky=W, padx=(260,0),pady=(0,0))
+bt_view_tau = Button(frame_cvr, text="view",command=press_view_tau,width=bt_small,font=bt_font,fg="black")
+bt_view_tau.grid(column=7, row=3,sticky=W)
 
 
 # Lag analysis
-lb_lag = Label(frame_cvr, text="Lag analysis",justify='left')
+lb_lag = Label(frame_cvr, text="LAG analysis",justify='left')
 lb_lag.grid(column=0,row=6,sticky=W,padx=(10,40))
 
-box_lag_minmax = Text(frame_cvr,width=8,height=1,font='grey',relief=SUNKEN,borderwidth=2)
+box_lag_minmax = Text(frame_cvr,height=1,width=time_map_width,relief=SUNKEN,borderwidth=2)
 box_lag_minmax.insert('1.0', 'start=0 end=8 step=0.2')  # Insert default text at the start (line 1, character 0)
-box_lag_minmax.grid(column=1, row=6,sticky=W,padx=(0,0))
+box_lag_minmax.grid(column=1, row=6,sticky=W,columnspan=4)
 
-bt_calc_lag_2d = Button(frame_cvr, text="👁",command=press_calc_lag_2d,width=bt_small,fg="black")
-bt_calc_lag_2d.grid(column=1, row=6,sticky=W, padx=(180,0),pady=(0,0))
+bt_calc_lag_2d = Button(frame_cvr, text="👁",command=press_calc_lag_2d,width=bt_small,font=bt_font,fg="black")
+bt_calc_lag_2d.grid(column=5, row=6,sticky=W)
 
-bt_calc_lag = Button(frame_cvr, text="calc",command=press_calc_lag,width=bt_small,fg="black")
-bt_calc_lag.grid(column=1, row=6,sticky=W, padx=(220,0),pady=(0,0))
+bt_calc_lag = Button(frame_cvr, text="calc",command=press_calc_lag_3d,width=bt_small,font=bt_font,fg="black")
+bt_calc_lag.grid(column=6, row=6,sticky=W)
 
-bt_view_lag = Button(frame_cvr, text="view",command=press_view_lag,width=bt_small,fg="black")
-bt_view_lag.grid(column=1, row=6,sticky=W, padx=(260,0),pady=(0,0))
+bt_view_lag = Button(frame_cvr, text="view",command=press_view_lag,width=bt_small,font=bt_font,fg="black")
+bt_view_lag.grid(column=7, row=6,sticky=W)
 
 
 # LINE 07
@@ -3682,20 +4931,20 @@ lb2_aif = Label(frame_cvr, text="Arterial Input Function")
 lb2_aif.grid(column=0, row=9,sticky=W,padx=(10,10))
 
 lb2_nvox = Label(frame_cvr, text="N. voxels")
-lb2_nvox.grid(column=1, row=9,sticky=W,padx=(0,0))
+lb2_nvox.grid(column=1, row=9,sticky=W)
 
 txt2_nvox = Text(frame_cvr,width=3,height=1,font='red',relief=SUNKEN,borderwidth=2)
-txt2_nvox.grid(column=1, row=9,sticky=W,padx=(65,0))
+txt2_nvox.grid(column=2, row=9,sticky=W)
 
 type_aif = StringVar()
 choice_aif = ['Pos','Neg']
 menu_cvr_aif = OptionMenu(frame_cvr, type_aif, *choice_aif)
 type_aif.set('Neg') # set the default option
-menu_cvr_aif.grid(row=9, column=1, sticky=W, padx=(108,0),pady=(5,0))
-type_aif.trace('w', calc_aif_cvr)
+menu_cvr_aif.grid(row=9, column=3, sticky=W, columnspan=2)
+#type_aif.trace('w', calc_aif_cvr)
 
-bt2_calc_aif = Button(frame_cvr, text="calc",command=calc_aif_cvr,width=bt_small,fg="black")
-bt2_calc_aif.grid(column=1, row=9,sticky=W, padx=(180,0),pady=(0,0))
+bt2_calc_aif = Button(frame_cvr, text="calc",command=press_calc_aif_cvr,width=bt_small,font=bt_font,fg="black")
+bt2_calc_aif.grid(column=5, row=9,sticky=W)
 
 
 lb_quantperf = Label(frame_cvr, text="Quantitative Perfusion",justify='left')
@@ -3704,29 +4953,17 @@ lb_quantperf.grid(row=18,column=0,sticky=W,padx=(10,40))
 quant_method_cvr = StringVar()
 quant_choices_cvr = ['SVD','oSVD']
 quant_menu_cvr = OptionMenu(frame_cvr, quant_method_cvr, *quant_choices_cvr)
-quant_method_cvr.set('oSVD') # set the default option
-quant_menu_cvr.grid(row=18, column=1, sticky=W, columnspan=2, padx=(0,0))
+quant_method_cvr.set('SVD') # set the default option
+quant_menu_cvr.grid(row=18, column=1, sticky=W, columnspan=3)
 quant_menu_cvr.config(width=8)
 
 # Button to calc quantitative perfusion maps
-bt_calc_quantperf = Button(frame_cvr, text="calc",command=calc_quantcvr,width=bt_small,fg="black",activeforeground="red")
-bt_calc_quantperf.grid(column=1, row=18,sticky=W, padx=(120,0))
+bt_calc_quantperf = Button(frame_cvr, text="calc",command=calc_quantcvr,width=bt_small,font=bt_font,fg="black",activeforeground="red")
+bt_calc_quantperf.grid(column=4, row=18,sticky=W)
 
 # Button to show quantitative perfusion maps
-bnt_view_quantperf = Button(frame_cvr, text="view",command=view_quantperf,width=bt_small,fg="black")
-bnt_view_quantperf.grid(column=1, row=18,sticky=W, padx=(170,0))
-
-# Create a progress bar widget
-#frame_progbar = Frame(window)
-
-label = Label(window, text="0%")
-label.pack(side=BOTTOM, padx=10,pady=0)
-progress_bar = ttk.Progressbar(window, orient="horizontal", length=300, mode="determinate")
-progress_bar.pack(side=BOTTOM, padx=10, pady=0)
-def update_progress(step):
-    progress_bar['value'] = step
-    label['text'] = f"{step}%"  # Update the label next to the progress bar
-    progress_bar.update_idletasks()
+bnt_view_quantperf = Button(frame_cvr, text="view",command=view_quantperf,width=bt_small,font=bt_font,fg="black")
+bnt_view_quantperf.grid(column=5, row=18,sticky=W)
 
 
 # Make matplotlib figure called fig with 3x2 axes.
@@ -3763,13 +5000,30 @@ for spine in ax3.spines.values():
 
 
 
+# Create a style and get background color from it
+style = ttk.Style()
+bg_color = style.lookup('TFrame', 'background')
+
+# Fallback if lookup fails (esp. on some Windows themes)
+if not bg_color or bg_color in ('', 'SystemWindow'):
+    if platform.system() == 'Darwin':
+        bg_color = 'systemWindowBackgroundColor'  # Still valid on macOS
+    elif platform.system() == 'Windows':
+        bg_color = window.cget('bg')  # Default window background
+
 # Remove background color
 fig.patch.set_alpha(0.0)
+
 # Place fig in Tk window.
-canvas_fig = FigureCanvasTkAgg(fig,master = window)
+frame_fig_container = Frame(window)
+frame_fig_container.pack(side=RIGHT, fill=BOTH, expand=True)
+#progress = ttk.Progressbar(frame_fig_container, orient="vertical",length=300, mode="indeterminate")
+#progress.pack(side="left", anchor="nw")
+canvas_fig = FigureCanvasTkAgg(fig, master=frame_fig_container)
 canvas_fig.draw()
-canvas_fig.get_tk_widget().pack(side=RIGHT, fill=BOTH,expand=YES)
-canvas_fig.get_tk_widget().config(bg='systemWindowBackgroundColor')
+canvas_fig.get_tk_widget().pack(fill=BOTH,expand=True)
+canvas_fig.get_tk_widget().config(bg=bg_color)
+
 
 # Create the Horizontal RangeSlider axis at the bottom
 xlim_slider_ax = fig.add_axes([0.45, 0.97, 0.4, 0.01], facecolor='lightgoldenrodyellow')
@@ -3790,8 +5044,10 @@ ylim_slider.valtext.set_visible(False)  # This will hide the handle value text
 ylim_slider.closedmax = False  
 
 
-# A counter for the pre-processing steps
-pr = 0
+
+
+
+
 
 # Under construction
 def roll_view(event):
@@ -3828,13 +5084,12 @@ ylim_slider.on_changed(update_ylim)
 xlim_slider.on_changed(update_xlim)
 fig.canvas.mpl_connect('motion_notify_event', reset_slider_limits)
 fig.canvas.mpl_connect('motion_notify_event',on_mouse_move)
-fig.canvas.mpl_connect('button_press_event', on_click_im)
 fig.canvas.mpl_connect('button_press_event', on_click_im_right)
 fig.canvas.mpl_connect('pick_event', on_pick_line)
-fig.canvas.mpl_connect('motion_notify_event', on_move_time)
 fig.canvas.mpl_connect('button_press_event', on_click_time)
+fig.canvas.mpl_connect('motion_notify_event', on_move_time)
 fig.canvas.mpl_connect('button_release_event', on_release_time)
-
+cid_on_click_im = fig.canvas.mpl_connect('button_press_event', on_click_im)
 
 vline, text, cid = on_move_time_set(ax3)
 
@@ -3843,6 +5098,18 @@ context_menu4 = Menu(window, tearoff=0)
 context_menu5 = Menu(window, tearoff=0)
 context_menu6 = Menu(window, tearoff=0)
 
+# Define ROI 6 colors
+roi_colors = [
+    'red',         
+    'green',        
+    'blue',         
+    'orange',      
+    'purple',       
+    '#b58900'       # darker yellow (hex code)
+]
+
+# Create a ListedColormap
+cmap_roi = ListedColormap(roi_colors, name='roi_colors')
 
 # Define BH, CVR, fMRI colors scale
 colors = [
@@ -3861,6 +5128,28 @@ positions, hex_colors = zip(*colors)
 
 # Create the custom colormap
 fMRI_colors = LinearSegmentedColormap.from_list("custom_cmap", list(zip(positions, hex_colors)))
+
+# Define your custom "cool" part
+colors = [
+    (0, "#98f5ff"),
+    (0.5, "#0000ff"),
+    (0.8, "#000099"), 
+    (1, "#000000"),
+]
+positions, hex_colors = zip(*colors)
+cool_cmap = LinearSegmentedColormap.from_list("custom_cool", list(zip(positions, hex_colors)))
+
+# Sample colors from your custom "cool" colormap
+n = 256
+cool_colors = cool_cmap(np.linspace(0, 1, n // 2))
+hot_colors  = plt.cm.hot(np.linspace(0, 1, n // 2))
+
+# Combine (cool for [0–0.5], hot for [0.5–1])
+combined_colors = np.vstack((cool_colors, hot_colors))
+CoolHot_colors = ListedColormap(combined_colors, name='CoolHot')
+
+
+
 
 # Define SEGMENTATION colors
 colors = [
@@ -3887,6 +5176,7 @@ colormaps = {
     "inferno": plt.cm.inferno,
     "bone": plt.cm.bone,
     "turbo": plt.cm.turbo,
+    "CoolHot":CoolHot_colors,
     "fMRI": fMRI_colors,  # Add custom colormap with a string name
     "Seg": Seg_colors # Add the SEG colorscale
 }
