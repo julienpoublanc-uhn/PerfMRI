@@ -49,10 +49,6 @@ source perfmri_env/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 
-## Run
-python PerfMRI.py
-
-
 ### Optional: segmentation support (ANTsPy)
 
 PerfMRI can use ANTsPy for brain segmentation.
@@ -63,8 +59,6 @@ pip install antspyx
 If installation fails, PerfMRI will still run but segmentation features will be disabled.
 
 ## To run PerfMRI
-/path_to_program/PerfMRI.py
-or 
 python /path_to_program/PerfMRI.py
 
 
