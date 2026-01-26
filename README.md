@@ -51,7 +51,6 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
 ### Install dependencies
     python -m pip install -r requirements.txt
 ### Optional
-- To separate Left and Right hemisphere in segmentation 
     pip install antspyx
-    
+
 
