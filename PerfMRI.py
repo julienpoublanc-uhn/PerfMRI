@@ -3553,6 +3553,8 @@ def save2nifti(array, affine, form_code, dir, filename):
     # Save the Nifti image
     nb.save(nb_im, fullfile)
 
+
+
 # ==================================
 # Segmentation function using Kmean
 # ===================================
@@ -3569,7 +3571,9 @@ def seg_calc():
     brain_data = anat[anat_mask].reshape(-1, 1)
 
     # Run KMeans clustering
-    kmeans = KMeans(n_clusters=3, random_state=0, n_init='auto')
+    opts = read_advanced_options()
+    n_clusters = int(opts['seg_n_class'])
+    kmeans = KMeans(n_clusters=n_clusters, random_state=0, n_init='auto')
     labels_flat = kmeans.fit_predict(brain_data)
 
     # Assign clustered labels back into full image shape
@@ -3577,11 +3581,13 @@ def seg_calc():
     labels[anat_mask] = labels_flat + 1  # shift to avoid 0 as brain class
 
     # Optionally sort labels based on intensity to assign CSF/GM/WM
-    means = [anat[labels == i].mean() for i in [1, 2, 3]]
-    sorted_idx = np.argsort(means)
-    final_labels = np.zeros_like(labels)
+    means = [anat[labels == i].mean() for i in range(1, n_clusters + 1)]
+    sorted_idx = np.argsort(means)[::-1]  # high → low
+
+    final_labels = np.zeros_like(labels, dtype=np.uint8)
     for new_val, old_val in enumerate(sorted_idx, start=1):
         final_labels[labels == (old_val + 1)] = new_val
+
     final_labels_rsp = resample_to_img(source_img=nb.Nifti1Image(final_labels.transpose(1,0,2),nb_anat.affine), target_img=nb_func_mask, interpolation='nearest')
     seg = final_labels_rsp.get_fdata().transpose(1,0,2)
 
@@ -3784,6 +3790,8 @@ def set_advanced_options():
         file.write("reg_afni = yes # Uses afni 3dvolreg if yes. Uses NIPY SpaceRealign otherwise \n")
         file.write("dil_mask = 0 # # of voxels dilation around the BOLD mask \n")
         file.write("scale_percentile = 25 # Time series percentile to define baseline for BOLD scaling \n")
+        file.write("\n")
+        file.write("seg_n_class = 3 # Number of class for segmentation\n")
         file.write("\n")
         file.write("#========= DSC AIF section parameters ==========\n")
         file.write("sr_perc = 20 # Max % Difference in baseline between pre and post bolus\n")
@@ -4120,9 +4128,9 @@ def seg_ave():
         if os.path.isfile(fullfile):
             _, img, _ = load_nifti(dir, fname)
             rgm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 2, img)), 2)
-            rwm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 3, img)), 2)
+            rwm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 1, img)), 2)
             lgm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 20, img)), 2)
-            lwm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 30, img)), 2)
+            lwm_val = np.round(np.ma.mean(np.ma.masked_where(seg != 10, img)), 2)
             rows.append((label, rgm_val, rwm_val, lgm_val, lwm_val)) 
 
 

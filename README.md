@@ -38,17 +38,30 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
 
 ## Installation
 
-- Tested with Python 3.10
-- PerfMRI requires a few packages that can be installed as follow:
+- Install python (Tested with Python 3.10)
+- Download the package: Code (green button) > Download ZIP
+- Unzip and and move directory to desire folder
+- Using a command line Terminal, cd into the directory
+- In the Terminal, type the following, enter after each line:
 
-pip install numpy==1.24.2 scipy==1.15.3 matplotlib==3.10.3 nibabel==3.2.2 \
-    nilearn==0.10.2 nipy==0.6.1 dicom2nifti==2.4.10 \
-    pydicom==2.2.2 reorient-nii==1.0.0 antspyx==0.4.2
+python3 -m venv perfmri_env
+source perfmri_env/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 
-or using the requirements.txt file:
-pip install -r requirements.txt
+## Run
+python PerfMRI.py
 
-=
+
+### Optional: segmentation support (ANTsPy)
+
+PerfMRI can use ANTsPy for brain segmentation.
+If you want segmentation features, try:
+
+pip install antspyx
+
+If installation fails, PerfMRI will still run but segmentation features will be disabled.
+
 ## To run PerfMRI
 /path_to_program/PerfMRI.py
 or 
