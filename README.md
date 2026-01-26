@@ -42,18 +42,15 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
 
 ## Installation
 
-- Install Python 3.10:
-  brew install python-tk@3.10
+### Install Python 3.10:
+    brew install python-tk@3.10
 ### Create and activate a virtual environment
-
     python3 -m venv perfmri_env
     source perfmri_env/bin/activate
-
-python -m pip install --upgrade pip
-
-- Install dependencies
-python -m pip install -r requirements.txt
-
-- Optional
-pip install antspyx
+    python -m pip install --upgrade pip
+### Install dependencies
+    python -m pip install -r requirements.txt
+### Optional
+To separate Left and Right hemisphere in segmentation 
+    pip install antspyx
 
