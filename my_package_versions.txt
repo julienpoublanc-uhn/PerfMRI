@@ -1,0 +1,26 @@
+scipy
+Version: 1.15.2
+
+matplotlib
+Version: 3.10.6
+
+nibabel
+Version: 3.2.2
+
+nilearn
+Version: 0.12.0
+
+nipy
+Version: 0.6.1
+
+dicom2nifti
+Version: 2.6.2
+
+pydicom
+Version: 3.0.1
+
+reorient-nii
+Version: 1.0.0
+
+antspyx
+Version: 0.6.1

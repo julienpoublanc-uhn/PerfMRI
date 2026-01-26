@@ -59,8 +59,14 @@ from functools import partial
 from nipy.algorithms.registration.groupwise_registration import SpaceRealign
 from nilearn.image import resample_to_img
 from sklearn.cluster import KMeans
-import ants
 from tkinter import font
+try:
+    import ants
+    ANTS_AVAILABLE = True
+    import ants
+except Exception:
+    ANTS_AVAILABLE = False
+
 
 window = Tk()
 
