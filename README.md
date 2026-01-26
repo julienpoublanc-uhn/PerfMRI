@@ -3,7 +3,7 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
 
 ## Features
 
-### Pre-processing:
+### Pre-processing
 - Automask
 - Slice-time correction
 - Volume re-registration
@@ -12,60 +12,48 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
 - Spatial smoothing
 - Temporal smoothing
 
-### DSC Perfusion:
+### DSC Perfusion
 - Relative perfusion metrics (AUC, TTP, FWHM, BAT)
 - TTP, BAT maps have sub-TR temporal precision
 - Automated AIF detection based on relative perfusion metrics
-- Quantitative perfusion using SVD, oSVD or model-based residue function (exponential)
+- Quantitative perfusion using SVD, oSVD, or model-based residue function (exponential)
 - Tmax calculation
 
-### Breath-Hold and CVR:
+### Breath-Hold and CVR
 - Input stimulus based on ON/OFF timing from a user-provided stimulus file:
-    - One-column stimulus file (one value per TR)
-    - Two-column stimulus file (time, value)
+  - One-column stimulus file (one value per TR)
+  - Two-column stimulus file (time, value)
 - Fast linear regression of BOLD signal against the stimulus
 - Stimulus can be shifted left or right, with BOLD maps auto-recalculated to visualize the effect of lag
 - Lag and tau analysis
 
-### General Features:
+### ROI 
+- Drawing, loading and saving ROI
+- Averaging metrics within ROI
+
+### General Features
 - Input formats: NIfTI, DICOM, AFNI
 - (De-)oblique anatomical data to match functional obliquity
 - Fast voxel navigation for data browsing
 - Multiple colorscales available
 - Automatic or manual color scale limits
 - All maps can be automatically or manually exported
-- Quick segmentation into grey matter, white matter and csf and subdivided into left and right hemisphere.
+- Quick segmentation into grey matter, white matter, and CSF, subdivided into left and right hemisphere
 
 ## Installation
 
-- Install python.10
-brew install python-tk@3.10
+- Install Python 3.10:
+  brew install python-tk@3.10
+### Create and activate a virtual environment
 
-- Download the package: Code (green button) > Download ZIP
-- Unzip and and move directory to desire folder
-- Using a command line Terminal, cd into the directory
-- In the Terminal, type the following, enter after each line:
-- python3 -m venv perfmri_env
-- Activate the virtual environment:
-- For bash or zsh (default on macOS):
+    python3 -m venv perfmri_env
     source perfmri_env/bin/activate
 
-- For tcsh or csh:
-    source perfmri_env/bin/activate.csh
+python -m pip install --upgrade pip
 
-- python -m pip install --upgrade pip
-- python -m pip install -r requirements.txt
+- Install dependencies
+python -m pip install -r requirements.txt
 
-### Optional: segmentation support (ANTsPy)
-
-PerfMRI can use ANTsPy for brain segmentation.
-If you want segmentation features, try:
-
+- Optional
 pip install antspyx
-
-If installation fails, PerfMRI will still run but segmentation features will be disabled.
-
-## To run PerfMRI
-python /path_to_program/PerfMRI.py
-
 
