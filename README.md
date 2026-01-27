@@ -1,5 +1,5 @@
 # PerfMRI GUI
-Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reactivity datasets.
+Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebrovascular reactivity) datasets.
 
 ## Features
 
@@ -13,11 +13,11 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
 - Temporal smoothing
 
 ### DSC Perfusion
-- Relative perfusion metrics (AUC, TTP, FWHM, BAT)
-- TTP, BAT maps have sub-TR temporal precision
+- Relative perfusion metrics (**AUC**, **TTP**, **FWHM**, **BAT**)
+- **TTP**, **BAT** maps have sub-TR temporal precision
 - Automated AIF detection based on relative perfusion metrics
 - Quantitative perfusion using SVD, oSVD, or model-based residue function (exponential)
-- Tmax calculation
+- **rCBV, rCBF, MTT, Tmax** calculation
 
 ### Breath-Hold and CVR
 - Input stimulus based on ON/OFF timing from a user-provided stimulus file:
@@ -25,14 +25,15 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
   - Two-column stimulus file (time, value)
 - Fast linear regression of BOLD signal against the stimulus
 - Stimulus can be shifted left or right, with BOLD maps auto-recalculated to visualize the effect of lag
-- Lag and tau analysis
+- Magnitude, partial correlation, **CNR** metrics
+- **Lag** and **Response Time** metrics
 
 ### ROI 
 - Drawing, loading and saving ROI
 - Averaging metrics within ROI
 
 ### General Features
-- Input formats: NIfTI, DICOM, AFNI
+- Input formats: **NIfTI, DICOM, AFNI**
 - (De-)oblique anatomical data to match functional obliquity
 - Fast voxel navigation for data browsing
 - Multiple colorscales available
@@ -44,12 +45,12 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
 
 ### Download PerfMRI
 1. Go to Github > Code (green button) > Download ZIP
-2. Unzip and move PerfMRI-main to your home folder
+2. Unzip and move **PerfMRI-main** to your home folder
 3. Open Terminal (Applications > Utilities > Terminal)
 4. Navigate to the folder:
-    cd $HOME/PerfMRI-main
-5. Stay in Terminal
-   Copy and paste the following
+    **cd $HOME/PerfMRI-main**
+5. Stay in Terminal;
+   Copy/Paste the following
 
 ### Install Python 3.10:
     brew update
