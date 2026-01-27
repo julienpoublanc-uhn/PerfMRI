@@ -42,6 +42,15 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
 
 ## Installation (Tested on Mac Sequoia)
 
+### Download PerfMRI
+1. Go to Github > Code (green button) > Download ZIP
+2. Unzip and move PerfMRI-main folder to your desired location
+    - example: /Users/julien
+3. Open Terminal (Applications > Utilities > Terminal)
+4. Navigate to the folder:
+    cd /Users/julien/PerfMRI-main
+5. Copy & paste the following lines in the Terminal
+
 ### Install Python 3.10:
     brew update
     brew install python@3.10 python-tk@3.10
