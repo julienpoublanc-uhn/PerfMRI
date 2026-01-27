@@ -48,15 +48,19 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
 ### Create a virtual environment
     python3.10 -m venv perfmri_env
 ### Activate the virtual environment (bash & zsh)
-    # bash & zsh
     source perfmri_env/bin/activate
 ### Activate the virtual environment (tcsh & csh)
     source perfmri_env/bin/activate.csh
+### Verify Python version (should be 3.10.x)
+    python --version
+### Verify Tk is installed
+    python -m tkinter
 ### Upgrade pip 
     python -m pip install --upgrade pip
 ### Install dependencies
     python -m pip install -r requirements.txt
-### Optional (For separating Left & Right hem.)
+### Optional
+#### For separating Left & Right hem.
     pip install antspyx
 ## Run PerfMRI
     python  PerfMRI.py
