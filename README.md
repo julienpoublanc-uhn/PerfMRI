@@ -40,17 +40,25 @@ Program to analyze MRI DSC perfusion, BOLD breath-hold, and cerebrovascular reac
 - All maps can be automatically or manually exported
 - Quick segmentation into grey matter, white matter, and CSF, subdivided into left and right hemisphere
 
-## Installation
+## Installation (Tested on Mac Sequoia)
 
 ### Install Python 3.10:
-    brew install python-tk@3.10
-### Create and activate a virtual environment
-    python3 -m venv perfmri_env
+    brew update
+    brew install python@3.10 python-tk@3.10
+### Create a virtual environment
+    python3.10 -m venv perfmri_env
+### Activate the virtual environment (bash & zsh)
+    \# bash & zsh
     source perfmri_env/bin/activate
+### Activate the virtual environment (tcsh & csh)
+    source perfmri_env/bin/activate.csh
+### Upgrade pip 
     python -m pip install --upgrade pip
 ### Install dependencies
     python -m pip install -r requirements.txt
-### Optional
+### Optional (For separating Left & Right hem.)
     pip install antspyx
+## Run PerfMRI
+    python  PerfMRI.py
 
 
