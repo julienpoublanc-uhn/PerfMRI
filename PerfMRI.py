@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+# Import packages
 from glob import glob
 import os
 import shutil
