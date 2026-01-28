@@ -73,6 +73,17 @@ Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebro
 #### For separating Left & Right hem.
     pip install antspyx
 ## Run PerfMRI
-    python  PerfMRI.py
+
+### Option 1 – Terminal (all platforms)
+1. Open a Terminal
+2. Drag and drop `run_perfmri.sh` into the Terminal
+3. Press **Enter**
+
+### Option 2 – macOS (recommended)
+1. Double-click `run_perfmri.command`
+2. On first launch, macOS may block it:
+   - Right-click → **Open**
+   - Click **Open** again  
+   *(or allow it at the bottom of **System Settings → Privacy & Security**)*
 
 
