@@ -1,7 +1,15 @@
 #!/bin/tcsh
 cd $1
-set cut_npts = $2
-set afni_gamvar = `dirname "$0"`
+
+which 3dcalc >& /dev/null
+if ($status == 0) then
+    set pr = `which 3dcalc`
+    set afni_gamvar = $pr:h
+else
+    set afni_gamvar = `dirname "$0"`
+endif
+
+dirname "$0"
 set tr = `$afni_gamvar/3dinfo -TR conc.nii.gz`
 
 # Find start of bolus, end of bolus and end of recirculation
@@ -11,9 +19,8 @@ $afni_gamvar/3dmaskave -q -mask conc_mean.nii.gz conc.nii.gz > conc_ave.1D
 # Bolus start time
 set b = `$afni_gamvar/3dTstat -basepercent 15 -onset -prefix stdout: conc_ave.1D\'`
 
-# Last index to use in the gamma fit
-set N = `3dinfo -nvi conc.nii.gz`
-@ c = $N - $cut_npts
+# Bolus end
+set c = $2
 
 3dTstat -max -prefix conc_max.nii.gz conc.nii.gz
 set p = `3dmaskave -q -perc 99 conc_max.nii.gz`
@@ -62,7 +69,7 @@ $afni_gamvar/3dcalc -float -a dsc_gampara.nii.gz\[3\] -expr "a" -prefix decay.ni
 $afni_gamvar/3dcalc -float -a dsc_gampara.nii.gz\[2\] -b dsc_gampara.nii.gz\[3\] -c bat.nii.gz -expr "a*b" -prefix rttp.nii.gz
 $afni_gamvar/3dcalc -float -a bat.nii.gz -b rttp.nii.gz -expr "a+b" -prefix ttp.nii.gz 
 
-# FSTAT (named SMS smoothness)
+# FSTAT (named SMS smoothness in model-free)
 $afni_gamvar/3dcalc -float -a dsc_gampara.nii.gz\[4\] -expr "a" -prefix sms.nii.gz
 
 # AUC

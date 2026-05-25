@@ -45,10 +45,10 @@ Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebro
 
 ### Download PerfMRI
 1. Go to Github > Code (green button) > Download ZIP
-2. Unzip and move **PerfMRI-main** to your home folder
+2. Unzip and move **PerfMRI-main** to desired location
 3. Open Terminal (Applications > Utilities > Terminal)
-4. Navigate to the folder:
-    **cd $HOME/PerfMRI-main**
+4. Navigate to PerfMRI-main folder:
+    **cd /path_to/PerfMRI-main**
 5. Stay in Terminal;
    Copy/Paste the following
 
@@ -74,12 +74,13 @@ Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebro
     pip install antspyx
 ## Run PerfMRI
 
-### Option 1 – Terminal (all platforms)
+### Option 1
 1. Open a Terminal
-2. Drag and drop `run_perfmri.sh` into the Terminal
+2. cd /path_to/PerfMRI-main
+2. Type ./run_perfmri.sh`
 3. Press **Enter**
 
-### Option 2 – macOS (recommended)
+### Option 2 – macOS only
 1. Double-click `run_perfmri.command`
 2. On first launch, macOS may block it:
    - Right-click → **Open**
