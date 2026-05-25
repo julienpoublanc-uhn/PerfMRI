@@ -1,6 +1,16 @@
 # PerfMRI GUI
 Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebrovascular reactivity) datasets.
 
+## Interface
+<p align="center">
+  <img src="docs/gui.png" width="700">
+</p>
+
+## Pipeline
+<p align="center">
+  <img src="docs/pipeline.png" width="700">
+</p>
+
 ## Features
 
 ### Pre-processing
