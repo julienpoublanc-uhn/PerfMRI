@@ -73,30 +73,63 @@ except Exception:
 window = Tk()
 
 
-# Platfom specific
+# Platform specific
 import platform
+
 if platform.system() == 'Windows':
-    bt_small =  3
+    bt_small = 3
     bt_font = font.Font(size=8)
     font.nametofont("TkDefaultFont").configure(family="Arial", size=8)
     font.nametofont("TkTextFont").configure(family="Arial", size=10)
-    font.nametofont("TkFixedFont").configure(family=".AppleSystemUIFont", size=8)
+    font.nametofont("TkFixedFont").configure(family="Arial", size=8)
+
     metric_width = 60
     value_width = 40
     frame_ui_canvas_width = 400
     scroll_sensitivity = 120
     time_map_width = 22
-elif platform.system() == 'Darwin':
+
+
+elif platform.system() == 'Darwin':   # Mac
     bt_small = 1
+    bt_font = font.Font(size=13)
+
+    font.nametofont("TkFixedFont").configure(
+        family=".AppleSystemUIFont",
+        size=13
+    )
+
     metric_width = 100
     value_width = 60
-    bt_font = font.Font(size=13)
-    font.nametofont("TkFixedFont").configure(family=".AppleSystemUIFont", size=13)
     frame_ui_canvas_width = 600
     scroll_sensitivity = 1
     time_map_width = 18
-elif  platform.system() == 'Linux':
-    pass
+
+
+elif platform.system() == 'Linux':
+    bt_small = 1
+    bt_font = font.Font(size=11)
+
+    font.nametofont("TkDefaultFont").configure(
+        family="Ubuntu",
+        size=10
+    )
+
+    font.nametofont("TkTextFont").configure(
+        family="Ubuntu",
+        size=10
+    )
+
+    font.nametofont("TkFixedFont").configure(
+        family="Ubuntu",
+        size=10
+    )
+
+    metric_width = 100
+    value_width = 60
+    frame_ui_canvas_width = 600
+    scroll_sensitivity = 1
+    time_map_width = 18
 
 # Useful function for debugging
 def np_info(array):
