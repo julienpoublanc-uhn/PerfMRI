@@ -4296,52 +4296,30 @@ def read_advanced_options():
 
     return advanced_options
 
-def get_options_path(dir_perfmri):
-    return os.path.join(dir_perfmri, "PerfMRI_advanced_options.txt")
-
-
-def load_options(filename):
-    with open(filename, "r") as f:
-        return f.read()
-
-
-def save_options(filename, content):
-    try:
-        with open(filename, "w") as f:
-            f.write(content)
-    except Exception as e:
-        messagebox.showerror("Error", f"Failed to save file:\n{e}")
-
-
 def open_advanced_options():
+    if frame_opts.winfo_ismapped():  # If the frame is visible
+        frame_opts.pack_forget()      # Hide the frame
+    else:
+        frame_opts.pack()             # Show the frame
+    frame_opts.update_idletasks()
 
-    filename = get_options_path(dir_perfmri)
+def save_options():
+    filename = os.path.join(dir_perfmri, 'PerfMRI_advanced_options.txt')
+    new_content = text_widget.get('1.0', 'end-1c')
+    try:
+        with open(filename, 'w') as file:
+            file.write(new_content)
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to save file: {e}")
 
-    win = Toplevel(frame_ui)
-    win.title("Advanced Options")
-    win.geometry("700x500")
+def reset_advanced_options():
+    set_advanced_options()
+    filename = os.path.join(dir_perfmri, 'PerfMRI_advanced_options.txt')
+    with open(filename, 'r') as file:
+        content = file.read()
+        text_widget.delete('1.0', END) 
+        text_widget.insert('1.0', content)
 
-    # --- Text editor ---
-    text_widget = Text(win, wrap="word")
-    text_widget.pack(expand=True, fill="both")
-
-    # Load file content
-    text_widget.insert("1.0", load_options(filename))
-
-    # --- Buttons ---
-    btn_frame = Frame(win)
-    btn_frame.pack(fill="x")
-
-    def save():
-        content = text_widget.get("1.0", "end-1c")
-        save_options(filename, content)
-
-    def reset():
-        text_widget.delete("1.0", "end")
-        text_widget.insert("1.0", load_options(filename))
-
-    Button(btn_frame, text="Save", command=save).pack(side="left")
-    Button(btn_frame, text="Reset", command=reset).pack(side="left")
 
 # =================================================================================================
 # =================================================================================================
@@ -4991,7 +4969,7 @@ save_button = Button(frame_opts, text="Save", command=save_options)
 save_button.pack(side=LEFT)
 
 # Reset button
-reset_button = Button(frame_opts, text="Reset", command=set_advanced_options)
+reset_button = Button(frame_opts, text="Reset", command=reset_advanced_options)
 reset_button.pack(side=LEFT)
 
 frame_opts.pack_forget()
