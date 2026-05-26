@@ -4973,7 +4973,7 @@ current_tab_index = nb_analysis.index("current")
     # Get the text of the currently selected tab
 current_tab_text = nb_analysis.tab(current_tab_index, "text")
 
-bt_adv_opt = Button(frame_ui, text="AOW",command=open_advanced_options,bg="red",fg="blue")
+bt_adv_opt = Button(frame_ui, text="AOW",command=open_advanced_options,fg="blue")
 bt_adv_opt.pack(side=TOP,anchor="w",padx=10, pady=10)
 
 
@@ -5156,7 +5156,7 @@ choices_poly = ['Polynomial #','1','2','3 ','4','5','6','7','8','9','10','11','1
 menu_poly = OptionMenu(frame_preprocess, tkvar_poly, *choices_poly)
 tkvar_poly.set('Polynomial #') # set the default option
 menu_poly.grid(row=11,column=2,sticky=W,columnspan=2)
-menu_poly.config(width=8)
+menu_poly.config(width=9)
 
 
 bt_detrend = Button(frame_preprocess, text="calc",command=press_detrend_signal,width=bt_small,font=bt_font,fg="black",activeforeground="red")
@@ -5173,7 +5173,7 @@ choices_imtype = ['Concentration','% baseline','% mean',"% Percentile"]
 menu_imtype = OptionMenu(frame_preprocess, tkvar_imtype, *choices_imtype)
 tkvar_imtype.set('Concentration') # set the default option
 menu_imtype.grid(row=13, column = 2, sticky=W,columnspan=2)
-menu_imtype.config(width=8)
+menu_imtype.config(width=9)
 
 bt_scale_signal = Button(frame_preprocess, text="calc",command=press_scale_signal,width=bt_small,font=bt_font,fg="black",activeforeground="red")
 bt_scale_signal.grid(column=4, row=13,sticky=W)
