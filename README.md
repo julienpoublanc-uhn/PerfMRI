@@ -84,6 +84,6 @@ Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebro
 #### For separating Left & Right hem.
     pip install antspyx
 ## Run PerfMRI
-chmod +x run_perfmri.sh
-./run_perfmri.sh
+    chmod +x run_perfmri.sh
+    ./run_perfmri.sh
 
