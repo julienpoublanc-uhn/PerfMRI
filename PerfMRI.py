@@ -3668,7 +3668,8 @@ def on_click_im_right(event):
                 else:
                     colorscale = 'hot'
                 data4,ove4,und4,mapval4 = show_map(event.inaxes,newfile_array,label4,colorscale,5,5,anat)
-    
+                plt.draw()
+
         elif event.inaxes == ax5:
             rel_x, rel_y = event.inaxes.transAxes.inverted().transform((event.x, event.y))
             if 0.97 <= rel_x <= 1 and 0.3 <= rel_y <= 0.7:
@@ -3693,7 +3694,7 @@ def on_click_im_right(event):
                 else:
                     colorscale = 'hot'
                 data5,ove5,und5,mapval5 = show_map(event.inaxes,newfile_array,label5,colorscale,5,5,anat)
-
+                plt.draw()
 
         elif event.inaxes == ax6:
             rel_x, rel_y = event.inaxes.transAxes.inverted().transform((event.x, event.y))
@@ -3719,7 +3720,7 @@ def on_click_im_right(event):
                 else:
                     colorscale = 'hot'
                 data6,ove6,und6,mapval6 = show_map(event.inaxes,newfile_array,label6,colorscale,5,5,anat)
-
+                plt.draw()
     plt.draw()
 
 
