@@ -51,18 +51,39 @@ Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebro
 - All maps can be automatically or manually exported
 - Quick segmentation into grey matter, white matter, and CSF, subdivided into left and right hemisphere
 
-## Installation Instructions (Mac & Linux)
+## Installation (Tested on Mac Sequoia)
 
-### Download PerfMRI & Install
-    git clone https://github.com/julienpoublanc-uhn/PerfMRI.git
+### Download PerfMRI
+    git clone https://github.com/your_repo/PerfMRI.git
     cd PerfMRI
-    chmod +x install_perfmri.sh run_perfmri.sh
-    ./install_perfmri.sh
+
+### Install Python 3.10:
+#### MacOS
+    brew update
+    brew install python@3.10 python-tk@3.10
+#### Ubuntu / Debian Linux
+    sudo apt update
+    sudo apt install python3.10 python3.10-venv python3.10-dev python3-tk
+### Create a virtual environment
+    python3.10 -m venv perfmri_env
+### Activate the virtual environment (bash & zsh)
+    source perfmri_env/bin/activate
+### Activate the virtual environment (tcsh & csh)
+    source perfmri_env/bin/activate.csh
+### Verify Python version (should be 3.10.x)
+    python --version
+### Verify Tk is installed
+    python -m tkinter
+### Upgrade pip 
+    python -m pip install --upgrade pip
+### Install dependencies
+    python -m pip install -r requirements.txt
+### Install nipy
+    pip install git+https://github.com/nipy/nipy.git@0.6.1
 ### Optional
 #### For separating Left & Right hem.
-    source perfmri_env/bin/activate
     pip install antspyx
-### Run PerfMRI
+## Run PerfMRI
+    chmod +x run_perfmri.sh
     ./run_perfmri.sh
-
 
