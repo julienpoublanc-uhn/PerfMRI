@@ -54,17 +54,16 @@ Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebro
 ## Installation (Tested on Mac Sequoia)
 
 ### Download PerfMRI
-1. Go to Github > Code (green button) > Download ZIP
-2. Unzip and move **PerfMRI-main** to desired location
-3. Open Terminal (Applications > Utilities > Terminal)
-4. Navigate to PerfMRI-main folder:
-    **cd /path_to/PerfMRI-main**
-5. Stay in Terminal;
-   Copy/Paste the following
+    git clone https://github.com/your_repo/PerfMRI.git
+    cd PerfMRI
 
 ### Install Python 3.10:
+#### MacOS
     brew update
     brew install python@3.10 python-tk@3.10
+#### Ubuntu / Debian Linux
+    sudo apt update
+    sudo apt install python3.10 python3.10-venv python3.10-dev python3-tk
 ### Create a virtual environment
     python3.10 -m venv perfmri_env
 ### Activate the virtual environment (bash & zsh)
@@ -79,22 +78,12 @@ Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebro
     python -m pip install --upgrade pip
 ### Install dependencies
     python -m pip install -r requirements.txt
+### Install nipy
+    pip install git+https://github.com/nipy/nipy.git@0.6.1
 ### Optional
 #### For separating Left & Right hem.
     pip install antspyx
 ## Run PerfMRI
-
-### Option 1
-1. Open a Terminal
-2. cd /path_to/PerfMRI-main
-2. Type ./run_perfmri.sh`
-3. Press **Enter**
-
-### Option 2 – macOS only
-1. Double-click `run_perfmri.command`
-2. On first launch, macOS may block it:
-   - Right-click → **Open**
-   - Click **Open** again  
-   *(or allow it at the bottom of **System Settings → Privacy & Security**)*
-
+chmod +x run_perfmri.sh
+./run_perfmri.sh
 

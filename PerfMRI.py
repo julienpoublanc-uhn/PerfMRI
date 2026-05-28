@@ -78,6 +78,8 @@ import platform
 
 if platform.system() == 'Windows':
     bt_small = 3
+    menu_large = 8
+    menu_medium = 4
     bt_font = font.Font(size=8)
     font.nametofont("TkDefaultFont").configure(family="Arial", size=8)
     font.nametofont("TkTextFont").configure(family="Arial", size=10)
@@ -92,6 +94,8 @@ if platform.system() == 'Windows':
 
 elif platform.system() == 'Darwin':   # Mac
     bt_small = 1
+    menu_large = 8
+    menu_medium = 4
     bt_font = font.Font(size=13)
 
     font.nametofont("TkFixedFont").configure(
@@ -107,7 +111,9 @@ elif platform.system() == 'Darwin':   # Mac
 
 
 elif platform.system() == 'Linux':
-    bt_small = 1
+    bt_small = 2
+    menu_large = 10
+    menu_medium = 6
     bt_font = font.Font(size=11)
 
     font.nametofont("TkDefaultFont").configure(
@@ -943,7 +949,7 @@ def press_reg_anat2func():
     popup_wait()
     threading.Thread(target=reg_anat2func, daemon=True).start()
 
-import regtricks as rt
+#import regtricks as rt
 def reg_anat2func():
     save2nifti(anat,nb_anat.affine,2,dir_preprocess, 'tmp_anat.nii.gz')
     save2nifti(data1,aff_func_orig,2,dir_preprocess, 'tmp_func.nii.gz')
@@ -4361,12 +4367,12 @@ window.geometry(win_geo)
 window.title("PerfMRI")
 
 # Container that will hold the scrollable canvas + scrollbar
-frame_ui_container = Frame(window,width=300)
+frame_ui_container = Frame(window)
 frame_ui_container.pack(side=LEFT, fill=BOTH,expand=False)
 
 
 ui_visible = True  # Global toggle flag
-pack_opts = dict(side=BOTTOM, fill=BOTH,expand=TRUE)
+pack_opts = dict(side=BOTTOM, fill=BOTH, expand=TRUE)
 def toggle_ui():
     global ui_visible
     if ui_visible:
@@ -4418,7 +4424,7 @@ frame_ui.bind("<Leave>", _unbind_from_mousewheel)
 
 
 nb_prepro = ttk.Notebook(frame_ui,style="TNotebook")
-nb_prepro.pack(side=TOP,anchor="w",fill='both', expand=True)
+nb_prepro.pack(side=TOP,anchor="w",fill='both', expand=True,padx=6)
 
 frame_preprocess = Frame(nb_prepro,pady=20)
 nb_prepro.add(frame_preprocess, text='Pre-processings')
@@ -4441,7 +4447,7 @@ info_txt.tag_configure("warn", font=("Helvetica", 14), foreground="red")
 
 
 nb_analysis = ttk.Notebook(frame_ui,style="TNotebook")
-nb_analysis.pack(side=TOP,anchor="w")
+nb_analysis.pack(side=TOP,anchor="w",fill='both', expand=True,padx=6)
 
 # Make a frame for perfusion input
 frame_perf = Frame(nb_analysis,pady=20)
@@ -5032,15 +5038,9 @@ lb_convert = Label(frame_preprocess, text="Dicom2nifti")
 lb_convert.grid(column=1, row=2,sticky=W,padx=(10,40))
 bt_func = Button(frame_preprocess, text="func",command=convert_func,width=bt_small)
 bt_func.grid(column=2, row=2,sticky=W)
-def convert_anatt():
-    print("func_mask ===============")
-    np_info(func_mask)
-    print("=========================")
-    print("data1====================")
-    np_info(data1)
-    print("=========================")
 
-bt_anat = Button(frame_preprocess, text="anat",command=convert_anatt,width=bt_small,font=bt_font)
+
+bt_anat = Button(frame_preprocess, text="anat",command=convert_anat,width=bt_small,font=bt_font)
 bt_anat.grid(column=3, row=2,sticky=W)
 
 # LINE 02
@@ -5078,7 +5078,7 @@ choices_slicetime = ['Alternative+','Sequential+','Text file...']
 menu_slicetime = OptionMenu(frame_preprocess, tkvar_slicetime, *choices_slicetime)
 tkvar_slicetime.set('Alternative+') # set the default option
 menu_slicetime.grid(row=5, column=2, sticky=W,columnspan=2)
-menu_slicetime.config(width=8)
+menu_slicetime.config(width=menu_large)
 
 # Attach the trace to the StringVar, monitoring changes
 tkvar_slicetime.trace('w', on_slicetime_change)
@@ -5140,7 +5140,7 @@ choices_masktype = ['Automask','Use Zeros']
 menu_masktype = OptionMenu(frame_preprocess, tkvar_masktype, *choices_masktype)
 tkvar_masktype.set('Automask') # set the default option
 menu_masktype.grid(column = 2,row=10,sticky=W,columnspan=2)
-menu_masktype.config(width=8)
+menu_masktype.config(width=menu_large)
 
 bnt_mask_brain = Button(frame_preprocess, text="calc", justify='center',command=press_mask_brain,width=bt_small,font=bt_font)
 bnt_mask_brain.grid(column=4, row=10, sticky=W)
@@ -5156,7 +5156,7 @@ choices_poly = ['Polynomial #','1','2','3 ','4','5','6','7','8','9','10','11','1
 menu_poly = OptionMenu(frame_preprocess, tkvar_poly, *choices_poly)
 tkvar_poly.set('Polynomial #') # set the default option
 menu_poly.grid(row=11,column=2,sticky=W,columnspan=2)
-menu_poly.config(width=9)
+menu_poly.config(width=menu_large)
 
 
 bt_detrend = Button(frame_preprocess, text="calc",command=press_detrend_signal,width=bt_small,font=bt_font,fg="black",activeforeground="red")
@@ -5173,7 +5173,7 @@ choices_imtype = ['Concentration','% baseline','% mean',"% Percentile"]
 menu_imtype = OptionMenu(frame_preprocess, tkvar_imtype, *choices_imtype)
 tkvar_imtype.set('Concentration') # set the default option
 menu_imtype.grid(row=13, column = 2, sticky=W,columnspan=2)
-menu_imtype.config(width=9)
+menu_imtype.config(width=menu_large)
 
 bt_scale_signal = Button(frame_preprocess, text="calc",command=press_scale_signal,width=bt_small,font=bt_font,fg="black",activeforeground="red")
 bt_scale_signal.grid(column=4, row=13,sticky=W)
@@ -5197,7 +5197,7 @@ choices = ['Model Free','GamVar-afni']
 protocol_menu = OptionMenu(frame_perf, relperf_method, *choices)
 relperf_method.set('Model Free') # set the default option
 protocol_menu.grid(row=0, column=1, sticky=W, columnspan=2, padx=(0,0))
-protocol_menu.config(width=8)
+protocol_menu.config(width=menu_large)
 
 bt_calc_relperf = Button(frame_perf, text="calc",command=press_calc_relperf,width=bt_small,font=bt_font,activeforeground="red")
 bt_calc_relperf.grid(column=3, row=0,sticky=W, padx=(0,0))
@@ -5243,7 +5243,7 @@ choices = ['Original','GamVar-afni']
 protocol_menu = OptionMenu(frame_perf, switch_data_method, *choices)
 switch_data_method.set('Original') # set the default option
 protocol_menu.grid(row=4, column=1, sticky=W, columnspan=2, padx=(0,0))
-protocol_menu.config(width=8)
+protocol_menu.config(width=menu_large)
 
 bt_calc_switch_data = Button(frame_perf, text="load",command=press_switch_data,width=bt_small,font=bt_font,activeforeground="red")
 bt_calc_switch_data.grid(column=3, row=4,sticky=W, padx=(0,0))
@@ -5351,13 +5351,13 @@ choice_cvr_ref = ['Stimulus ...','Enter OFF/ON','Enter ref file']
 menu_cvr_ref = OptionMenu(frame_cvr, type_cvr_ref, *choice_cvr_ref)
 type_cvr_ref.set('Stimulus ...') # set the default option
 menu_cvr_ref.grid(row=0, column=1, sticky=W, columnspan=3, padx=(0,0))
-menu_cvr_ref.config(width=8)
+menu_cvr_ref.config(width=menu_large)
 type_cvr_ref.trace('w', calc_cvr_ref)
 
 bt_shift_left = Button(frame_cvr, text="<<",command=press_shift_cvr_ref_left,width=bt_small,font=bt_font,activeforeground="red")
 bt_shift_left.grid(column=4, row=0,sticky=W)
 
-bt_shift_right = Button(frame_cvr, text=">>",command=press_shift_cvr_ref_right,width=bt_small,font=bt_font,padx=1,activeforeground="red")
+bt_shift_right = Button(frame_cvr, text=">>",command=press_shift_cvr_ref_right,width=bt_small,font=bt_font,activeforeground="red")
 bt_shift_right.grid(column=5, row=0,sticky=W)
 
 bt_calc_regression = Button(frame_cvr, text="calc",command=press_calc_regression,width=bt_small,font=bt_font,fg="black")
@@ -5413,7 +5413,7 @@ choice_bands = ['Define...','Inputs','Auto']
 menu_bands = OptionMenu(frame_cvr, type_bands, *choice_bands)
 type_bands.set('Define...') # set the default option
 menu_bands.grid(row=3, column=1, sticky=W, columnspan=2)
-menu_bands.config(width=4)
+menu_bands.config(width=menu_medium)
 type_bands.trace('w', press_define_windows)
 
 bt_move_bands_left = Button(frame_cvr, text="<",command=move_bands_left,width=bt_small,font=bt_font,fg="black")
@@ -5450,7 +5450,7 @@ choice_aif = ['Pos','Neg']
 menu_cvr_aif = OptionMenu(frame_cvr, type_aif, *choice_aif)
 type_aif.set('Neg') # set the default option
 menu_cvr_aif.grid(row=9, column=3, sticky=W, columnspan=2)
-#type_aif.trace('w', calc_aif_cvr)
+
 
 bt2_calc_aif = Button(frame_cvr, text="calc",command=press_calc_aif_cvr,width=bt_small,font=bt_font,fg="black")
 bt2_calc_aif.grid(column=5, row=9,sticky=W)
@@ -5464,7 +5464,7 @@ quant_choices_cvr = ['SVD','oSVD']
 quant_menu_cvr = OptionMenu(frame_cvr, quant_method_cvr, *quant_choices_cvr)
 quant_method_cvr.set('SVD') # set the default option
 quant_menu_cvr.grid(row=18, column=1, sticky=W, columnspan=3)
-quant_menu_cvr.config(width=8)
+quant_menu_cvr.config(width=menu_large)
 
 # Button to calc quantitative perfusion maps
 bt_calc_quantperf = Button(frame_cvr, text="calc",command=calc_quantcvr,width=bt_small,font=bt_font,fg="black",activeforeground="red")
