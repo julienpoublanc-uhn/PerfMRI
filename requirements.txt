@@ -6,5 +6,4 @@ nilearn==0.10.2
 dicom2nifti==2.6.2
 pydicom==3.0.1
 reorient-nii==1.0.0
-nipy==0.6.1
 
