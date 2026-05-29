@@ -55,6 +55,7 @@ Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebro
 
 ### Download & Install
 PerfMRI is installed inside its own Python virtual environment, so it will not affect your existing Python packages or system configuration.
+    ```bash
     git clone https://github.com/julienpoublanc-uhn/PerfMRI.git
     cd PerfMRI
     chmod +x install_perfmri.sh run_perfmri.sh
