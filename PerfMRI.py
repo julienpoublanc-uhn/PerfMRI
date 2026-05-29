@@ -5,6 +5,7 @@ from glob import glob
 import os
 import shutil
 from tkinter import *
+from tkinter.ttk import Button as Butt
 from tkinter import filedialog, simpledialog, ttk, messagebox
 
 import subprocess
@@ -134,7 +135,7 @@ elif platform.system() == 'Linux':
     metric_width = 100
     value_width = 60
     frame_ui_canvas_width = 600
-    scroll_sensitivity = 1
+    scroll_sensitivity = 120
     time_map_width = 18
 
 # Useful function for debugging
@@ -4399,13 +4400,15 @@ frame_ui_canvas = Canvas(frame_ui_container,width=frame_ui_canvas_width,bd=0,hig
 frame_ui_canvas.pack(side=LEFT, fill=BOTH, expand=True)
 
 
-# The actual frame with UI widgets
+# # The actual frame with UI widgets
 frame_ui = Frame(frame_ui_canvas)
 frame_ui_canvas.create_window((0, 0), window=frame_ui, anchor="nw")
+
 
 # Update scrollregion when contents grow
 def on_configure(event):
     frame_ui_canvas.configure(scrollregion=frame_ui_canvas.bbox("all"))
+
 frame_ui.bind("<Configure>", on_configure)
 
 # Scroll function
@@ -4413,14 +4416,34 @@ def _on_mousewheel(event):
     frame_ui_canvas.yview_scroll(int(-1 * (event.delta / scroll_sensitivity)), "units")
 
 # Bind only when mouse is over the canvas
+# --- Linux scroll handler ---
+def _on_linux_scroll(event):
+    if event.num == 4:
+        frame_ui_canvas.yview_scroll(-1, "units")
+    elif event.num == 5:
+        frame_ui_canvas.yview_scroll(1, "units")
+
+
 def _bind_to_mousewheel(event):
-    frame_ui_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+    if platform.system() == "Linux":
+        frame_ui_canvas.bind_all("<Button-4>", _on_linux_scroll)
+        frame_ui_canvas.bind_all("<Button-5>", _on_linux_scroll)
+    else:
+        frame_ui_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
 
 def _unbind_from_mousewheel(event):
-    frame_ui_canvas.unbind_all("<MouseWheel>")
+    if platform.system() == "Linux":
+        frame_ui_canvas.unbind_all("<Button-4>")
+        frame_ui_canvas.unbind_all("<Button-5>")
+    else:
+        frame_ui_canvas.unbind_all("<MouseWheel>")
 
 frame_ui.bind("<Enter>", _bind_to_mousewheel)
 frame_ui.bind("<Leave>", _unbind_from_mousewheel)
+
+
+
 
 
 
