@@ -4560,18 +4560,16 @@ tree_roi = ttk.Treeview(
     height=8
 )
 
-#s = ttk.Style()
-#s.configure('Treeview.Heading', background='black', foreground='dark blue')
 
 
 # Set up the column headings
 tree_roi.heading('metric', text='Metric')
-tree_roi.heading('roi1', text="🟥ROI1")
-tree_roi.heading('roi2', text="🟩ROI2")
-tree_roi.heading('roi3', text="🟦ROI3")
-tree_roi.heading('roi4', text="🟧ROI4")
-tree_roi.heading('roi5', text="🟪ROI5")
-tree_roi.heading('roi6', text="🟨ROI6")
+tree_roi.heading('roi1', text="🔴 ROI1")
+tree_roi.heading('roi2', text="💚 ROI2")
+tree_roi.heading('roi3', text="💙 ROI3")
+tree_roi.heading('roi4', text="🧡 ROI4")
+tree_roi.heading('roi5', text="💜 ROI5")
+tree_roi.heading('roi6', text="💛 ROI6")
 
 # Set up the column widths and alignment
 tree_roi.column('metric', width=int(metric_width), anchor='w')
@@ -4581,7 +4579,7 @@ tree_roi.column('roi3', width=value_width, anchor='center')
 tree_roi.column('roi4', width=value_width, anchor='center')
 tree_roi.column('roi5', width=value_width, anchor='center')
 tree_roi.column('roi6', width=value_width, anchor='center')
-tree_roi.grid(row=0,column=0,sticky=W, padx=(10,0),pady=(20,0),columnspan=6)
+tree_roi.grid(row=1,column=0,sticky=W, padx=(10,0),pady=(20,0),columnspan=7)
 
 
 tree_roi.tag_configure('red_col', foreground='red')
@@ -4590,6 +4588,7 @@ tree_roi.tag_configure('blue_col', foreground='blue')
 tree_roi.tag_configure('orange_col', foreground='orange')
 tree_roi.tag_configure('purple_col', foreground='purple')
 tree_roi.tag_configure('yellow_col', foreground='#b58900')
+
 
 
 # Make a frame for Segmentation
