@@ -5,7 +5,7 @@ from glob import glob
 import os
 import shutil
 from tkinter import *
-from tkinter.ttk import Button as Butt
+from tkinter.ttk import PanedWindow, Separator
 from tkinter import filedialog, simpledialog, ttk, messagebox
 
 import subprocess
@@ -4368,36 +4368,23 @@ win_geo = '%dx%d'%(screen_height*1.5,screen_height/1.3)
 window.geometry(win_geo)
 window.title("PerfMRI")
 
-# Container that will hold the scrollable canvas + scrollbar
-frame_ui_container = Frame(window)
-frame_ui_container.pack(side=LEFT, fill=BOTH,expand=False)
+# Separate the window in 2 panes with UI on LEFT and plots/images on right
+paned = PanedWindow(window, orient=HORIZONTAL)
+paned.pack(side=TOP,fill=BOTH, expand=True)
+frame_ui_container = Frame(paned)
+paned.add(frame_ui_container)
+window.after(100, lambda: paned.sashpos(0, 600))
+frame_fig_container = Frame(paned)
+paned.add(frame_fig_container)
 
 
-ui_visible = True  # Global toggle flag
-pack_opts = dict(side=BOTTOM, fill=BOTH, expand=TRUE)
-def toggle_ui():
-    global ui_visible
-    if ui_visible:
-        frame_ui_container.pack_forget()
-        toggle_button.config(text="Show UI")
-        print("winfo_ismapped:", frame_ui_container.winfo_ismapped())
-    else:
-        frame_ui_container.pack(**pack_opts)
-        frame_ui_canvas.config(scrollregion=frame_ui_canvas.bbox("all"))
-        frame_ui_container.lift()
-        frame_ui_container.update()
-        window.update_idletasks()
-        print("size:", frame_ui_container.winfo_width(), frame_ui_container.winfo_height())
-        print("Canvas bbox:", frame_ui_canvas.bbox("all"))
-        toggle_button.config(text="Hide UI")
-    ui_visible = not ui_visible
 
-toggle_button = Button(window, text="Hide UI", command=toggle_ui)
-toggle_button.pack(side=TOP)
+sep = Separator(frame_ui_container, orient="vertical")
+sep.pack(side=RIGHT, fill=Y)
 
-# Canvas inside container
-frame_ui_canvas = Canvas(frame_ui_container,width=frame_ui_canvas_width,bd=0,highlightthickness=0)
-frame_ui_canvas.pack(side=LEFT, fill=BOTH, expand=True)
+
+frame_ui_canvas = Canvas(frame_ui_container,bd=0,highlightthickness=0)
+frame_ui_canvas.pack(fill=BOTH, expand=True)
 
 
 # # The actual frame with UI widgets
@@ -4978,8 +4965,8 @@ def open_cvr_export_window():
 
 # --- Buttons in the different frames of the UI
 
-bt_export_preprocess = Button(frame_preprocess, text="Export ...", command=open_preprocess_export_window, fg="blue")
-bt_export_preprocess.grid(column=1,row=40, sticky=W, padx=10,pady=(10,0))
+# bt_export_preprocess = Button(frame_preprocess, text="Export ...", command=open_preprocess_export_window, fg="blue")
+# bt_export_preprocess.grid(column=1,row=15, sticky=W, padx=10,pady=(10,0))
 
 bt_export_perfusion = Button(frame_perf, text="Export ...", command=open_perfusion_export_window, fg="blue")
 bt_export_perfusion.grid(column=0,row=40, sticky=W, padx=10, pady=10)
@@ -5011,7 +4998,7 @@ frame_opts=Frame(frame_ui)
 frame_opts.pack(side=TOP,anchor="w")
 
 # Create a Text widget for editing the options
-text_widget = Text(frame_opts, wrap='word', width=70, height=20,highlightcolor="blue")
+text_widget = Text(frame_opts, wrap='word', width=70, height=10,highlightcolor="blue")
 text_widget.pack()
 
 
@@ -5027,13 +5014,6 @@ frame_opts.pack_forget()
 
 
 
-# Make a frame for messages at bottom
-frame_path = Frame(window)
-frame_path.pack(side=BOTTOM, padx=10, pady=10)
-anatdir = Label(frame_path, text="Anatomical:",fg="white",bg='black',relief='flat')
-anatdir.grid(column=0, row=0,sticky=W,padx=(10,0),columnspan=15)
-funcdir  = Label(frame_path, text='Functional: ', fg="white",bg='black',relief='flat')
-funcdir.grid(column=0, row=1,sticky=W,padx=(10,0),columnspan=15)
 
 
 
@@ -5058,7 +5038,7 @@ script_directory = os.path.dirname(script_path)
 # LINE 01
 # Convert files from dicom to nifti
 lb_convert = Label(frame_preprocess, text="Dicom2nifti")
-lb_convert.grid(column=1, row=2,sticky=W,padx=(10,40))
+lb_convert.grid(column=1, row=2,sticky=W,padx=(10,20))
 bt_func = Button(frame_preprocess, text="func",command=convert_func,width=bt_small)
 bt_func.grid(column=2, row=2,sticky=W)
 
@@ -5069,7 +5049,7 @@ bt_anat.grid(column=3, row=2,sticky=W)
 # LINE 02
 # Choose FUNC and ANAT files
 lb_inp_nifti = Label(frame_preprocess, text="Input nifti")
-lb_inp_nifti.grid(column=1, row=3,sticky=W,padx=(10,40))
+lb_inp_nifti.grid(column=1, row=3,sticky=W,padx=(10,20))
 
 bnt_choose_funcfile = Button(frame_preprocess, text="func",command=click_choose_funcfile,width=bt_small,font=bt_font)
 bnt_choose_funcfile.grid(column=2, row=3,sticky=W)
@@ -5080,140 +5060,146 @@ bnt_choose_anatfile.grid(column=3, row=3,sticky=W)
 bt_load_raw = Button(frame_preprocess, text="load",command=press_load_raw,width=bt_small,font=bt_font,fg="black",activeforeground="red")
 bt_load_raw.grid(column=4, row=3,sticky=W)
 
+# Input files paths
+italic_font = font.Font(family="Helvetica",slant="italic")
+Label(frame_preprocess).grid(column=0, row=30)
+anatdir = Label(frame_preprocess, text="",fg='grey',font=italic_font)
+anatdir.grid(column=0, row=31,sticky=W,padx=(10,0),columnspan=15)
+funcdir  = Label(frame_preprocess, text='',fg='grey',font=italic_font)
+funcdir.grid(column=0, row=32,sticky=W,padx=(10,0),columnspan=15)
+
+
+
+
 # Trim the signal
 lb_trim_signal = Label(frame_preprocess, text="Trim Signal")
-lb_trim_signal.grid(column=1, row=4,sticky=W,padx=(10,40))
+lb_trim_signal.grid(column=1, row=6,sticky=W,padx=(10,20))
 
 bnt_set_vlines = Button(frame_preprocess, text="set", justify='center',command=set_vlines,width=bt_small,font=bt_font)
-bnt_set_vlines.grid(column=2, row=4, sticky=W)
+bnt_set_vlines.grid(column=2, row=6, sticky=W)
 
 bnt_trim_signal = Button(frame_preprocess, text="calc",command=press_trim_signal,width=bt_small,font=bt_font)
-bnt_trim_signal.grid(column=3, row=4,sticky=W)
+bnt_trim_signal.grid(column=3, row=6,sticky=W)
 
 
 # Slice Time correction
 lb_slicetime = Label(frame_preprocess, text="Time   Realign")
-lb_slicetime.grid(column=1, row=5,sticky=W,padx=(10,10))
+lb_slicetime.grid(column=1, row=7,sticky=W,padx=(10,10))
 
 # Choose slice time ordering
 tkvar_slicetime = StringVar()
 choices_slicetime = ['Alternative+','Sequential+','Text file...']
 menu_slicetime = OptionMenu(frame_preprocess, tkvar_slicetime, *choices_slicetime)
 tkvar_slicetime.set('Alternative+') # set the default option
-menu_slicetime.grid(row=5, column=2, sticky=W,columnspan=2)
+menu_slicetime.grid(row=7, column=2, sticky=W,columnspan=2)
 menu_slicetime.config(width=menu_large)
 
 # Attach the trace to the StringVar, monitoring changes
 tkvar_slicetime.trace('w', on_slicetime_change)
 bt_slicetime = Button(frame_preprocess, text="calc",command=press_time_realign,width=bt_small,font=bt_font)
-bt_slicetime.grid(column=4, row=5,sticky=W)
+bt_slicetime.grid(column=4, row=7,sticky=W)
 
 
 # Volume re-registration
 lb_space_realign = Label(frame_preprocess, text="Space Realign")
-lb_space_realign.grid(column=1, row=6,sticky=W,padx=(10,10))
+lb_space_realign.grid(column=1, row=8,sticky=W,padx=(10,10))
 
 # Calc 
 bt_space_realign = Button(frame_preprocess, text="calc",command=press_space_realign,width=bt_small,font=bt_font)
-bt_space_realign.grid(column=2, row=6,sticky=W)
+bt_space_realign.grid(column=2, row=8,sticky=W)
 
 # View motion parameters 
 bt_view_realign = Button(frame_preprocess, text="view",command=press_view_motion,width=bt_small,font=bt_font)
-bt_view_realign.grid(column=3, row=6,sticky=W)
+bt_view_realign.grid(column=3, row=8,sticky=W)
 
-# Register anat to func
-# lb_anat2func = Label(frame_preprocess, text="Reg anat to func")
-# lb_anat2func.grid(column=0, row=7,sticky=W,padx=(10,10))
-# bt_anat2func = Button(frame_preprocess, text="calc",command=press_reg_anat2func,width=bt_small,font=bt_font)
-# bt_anat2func.grid(column=1, row=7,sticky=W)
 
 # Spatial smoothing
 lb_spatial_smoothing = Label(frame_preprocess, text="Smooth Space")
-lb_spatial_smoothing.grid(column=1, row=8, sticky=W, padx=(10,10))
+lb_spatial_smoothing.grid(column=1, row=10, sticky=W, padx=(10,10))
 
 lb_fwhm = Label(frame_preprocess, text="FWHM (mm)")
-lb_fwhm.grid(column=2, row=8, sticky=W,columnspan=2)
+lb_fwhm.grid(column=2, row=10, sticky=W,columnspan=2)
 
 sb_fwhm = Spinbox(frame_preprocess, from_=0, to=20,increment=0.1,width=3)  # You can set a range, like 0 to 20
-sb_fwhm.grid(row=8, column = 4, sticky=W)
+sb_fwhm.grid(row=10, column = 4, sticky=W)
 
 bt_spatial_smoothing = Button(frame_preprocess, text="calc", justify='center',command=press_spatial_smoothing,width=bt_small,font=bt_font,fg="black",activeforeground="red")
-bt_spatial_smoothing.grid(column=5, row=8, sticky=W)
+bt_spatial_smoothing.grid(column=5, row=10, sticky=W)
 
 # Temporal smoothing
 lb_temporal_smoothing = Label(frame_preprocess, text="Smooth Time")
-lb_temporal_smoothing.grid(column=1, row=9, sticky=W, padx=(10,10))
+lb_temporal_smoothing.grid(column=1, row=11, sticky=W, padx=(10,10))
 
 lb_fwhm_t = Label(frame_preprocess, text="FWHM(s)")
-lb_fwhm_t.grid(column=2, row=9, sticky=W,columnspan=2)
+lb_fwhm_t.grid(column=2, row=11, sticky=W,columnspan=2)
 
 sb_fwhm_t = Spinbox(frame_preprocess, from_=0, to=20,increment=0.1,width=3)  # You can set a range, like 0 to 20
-sb_fwhm_t.grid(row=9, column = 4, sticky=W)
+sb_fwhm_t.grid(row=11, column = 4, sticky=W)
 
 bt_temporal_smoothing = Button(frame_preprocess, text="calc", justify='center',command=press_temporal_smoothing,width=bt_small,font=bt_font,fg="black",activeforeground="red")
-bt_temporal_smoothing.grid(column=5, row=9, sticky=W)
+bt_temporal_smoothing.grid(column=5, row=11, sticky=W)
 
 # Mask brain
 lb_mask_brain = Label(frame_preprocess, text="Mask Brain")
-lb_mask_brain.grid(column=1, row=10, sticky=W, padx=(10,40))
+lb_mask_brain.grid(column=1, row=12, sticky=W, padx=(10,20))
 
 # Choose Masking option
 tkvar_masktype = StringVar()
 choices_masktype = ['Automask','Use Zeros']
 menu_masktype = OptionMenu(frame_preprocess, tkvar_masktype, *choices_masktype)
 tkvar_masktype.set('Automask') # set the default option
-menu_masktype.grid(column = 2,row=10,sticky=W,columnspan=2)
+menu_masktype.grid(column = 2,row=12,sticky=W,columnspan=2)
 menu_masktype.config(width=menu_large)
 
 bnt_mask_brain = Button(frame_preprocess, text="calc", justify='center',command=press_mask_brain,width=bt_small,font=bt_font)
-bnt_mask_brain.grid(column=4, row=10, sticky=W)
+bnt_mask_brain.grid(column=4, row=12, sticky=W)
 
 
 # Detrend signal
 lb_detrend = Label(frame_preprocess, text="Drift Correction")
-lb_detrend.grid(column=1, row=11,sticky=W,padx=(10,40))
+lb_detrend.grid(column=1, row=13,sticky=W,padx=(10,20))
 
 # Polynomial
 tkvar_poly = StringVar()
 choices_poly = ['Polynomial #','1','2','3 ','4','5','6','7','8','9','10','11','12']
 menu_poly = OptionMenu(frame_preprocess, tkvar_poly, *choices_poly)
 tkvar_poly.set('Polynomial #') # set the default option
-menu_poly.grid(row=11,column=2,sticky=W,columnspan=2)
+menu_poly.grid(row=13,column=2,sticky=W,columnspan=2)
 menu_poly.config(width=menu_large)
 
 
 bt_detrend = Button(frame_preprocess, text="calc",command=press_detrend_signal,width=bt_small,font=bt_font,fg="black",activeforeground="red")
-bt_detrend.grid(column=4, row=11,sticky=W)
+bt_detrend.grid(column=4, row=13,sticky=W)
 
 
 #Scale signal
 lb_scale = Label(frame_preprocess, text="Scale signal")
-lb_scale.grid(column=1, row=13,sticky=W,padx=(10,10))
+lb_scale.grid(column=1, row=15,sticky=W,padx=(10,10))
 
 # Choose between Signal or Concentration time series
 tkvar_imtype = StringVar()
 choices_imtype = ['Concentration','% baseline','% mean',"% Percentile"]
 menu_imtype = OptionMenu(frame_preprocess, tkvar_imtype, *choices_imtype)
 tkvar_imtype.set('Concentration') # set the default option
-menu_imtype.grid(row=13, column = 2, sticky=W,columnspan=2)
+menu_imtype.grid(row=15, column = 2, sticky=W,columnspan=2)
 menu_imtype.config(width=menu_large)
 
 bt_scale_signal = Button(frame_preprocess, text="calc",command=press_scale_signal,width=bt_small,font=bt_font,fg="black",activeforeground="red")
-bt_scale_signal.grid(column=4, row=13,sticky=W)
+bt_scale_signal.grid(column=4, row=15,sticky=W)
 
 # Undo last pre-processing step
 lb_undo = Label(frame_preprocess, text="Undo last step")
-lb_undo.grid(column=1, row=14,sticky=W,padx=(10,10))
+lb_undo.grid(column=1, row=16,sticky=W,padx=(10,10))
 
 lb_undo = Button(frame_preprocess, text="↶",command=undo_prepro,width=bt_small,font=bt_font,fg="black",activeforeground="red")
-lb_undo.grid(column=2, row=14,sticky=W)
+lb_undo.grid(column=2, row=16,sticky=W)
 
 
 # LINE 06
 # Relative perfusion
 
 lb_relperf = Label(frame_perf, text="Relative Perfusion",justify='left')
-lb_relperf.grid(row=0,column=0,sticky=W,padx=(10,40))
+lb_relperf.grid(row=0,column=0,sticky=W,padx=(10,20))
 
 relperf_method = StringVar()
 choices = ['Model Free','GamVar-afni']
@@ -5230,7 +5216,7 @@ bt_view_relperf.grid(column=4, row=0,sticky=W, padx=(0,0))
 
 # This was the line to correct the time map with time slices instead of the slice time correction on the raw dataset
 # lb_corr_time = Label(frame_perf, text="Correct time maps",justify='left')
-# lb_corr_time.grid(row=1,column=0,sticky=W,padx=(10,40))
+# lb_corr_time.grid(row=1,column=0,sticky=W,padx=(10,20))
 
 # # Choose slice time ordering
 # tkvar_correct_time = StringVar()
@@ -5546,11 +5532,6 @@ if not bg_color or bg_color in ('', 'SystemWindow'):
 # Remove background color
 fig.patch.set_alpha(0.0)
 
-# Place fig in Tk window.
-frame_fig_container = Frame(window)
-frame_fig_container.pack(side=RIGHT, fill=BOTH, expand=True)
-#progress = ttk.Progressbar(frame_fig_container, orient="vertical",length=300, mode="indeterminate")
-#progress.pack(side="left", anchor="nw")
 canvas_fig = FigureCanvasTkAgg(fig, master=frame_fig_container)
 canvas_fig.draw()
 canvas_fig.get_tk_widget().pack(fill=BOTH,expand=True)
@@ -5574,9 +5555,6 @@ ylim_slider = RangeSlider(ylim_slider_ax, '', -2, 2, valinit=(-1, 1), orientatio
 
 ylim_slider.valtext.set_visible(False)  # This will hide the handle value text
 ylim_slider.closedmax = False  
-
-
-
 
 
 
