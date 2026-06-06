@@ -73,6 +73,7 @@ except Exception:
 
 window = Tk()
 
+PLOT_SCALE = 1
 
 # Platform specific
 import platform
@@ -569,7 +570,7 @@ def load_raw():
     slice_n = Slider(slider_pos, "Slices", 0, anat.shape[2]-1, valinit=k0, valstep=1,
                     color='darkgrey', orientation='vertical')
     slice_n.valtext.set_color('red')
-    slice_n.valtext.set_fontsize(16)
+    slice_n.valtext.set_fontsize(12*PLOT_SCALE)
     slice_n.valtext.set_position((-1, 0))
     slice_n.on_changed(update_slice)
 
@@ -596,9 +597,9 @@ def load_raw():
 
     ove1 = ax1.imshow(data1[:, :, K0,0],cmap='gist_heat',alpha=0.7,extent=fov_func,zorder=2,vmin=min_func,vmax=max_func)
     ove1b = ax1.imshow(aif[:, :, K0],cmap='spring',alpha=1,extent=fov_func,zorder=2)
-    label1_text = ax1.text(0.05, 0.95,label1, color='white', fontsize=2.5*h_box, ha='left', va='top', transform=ax1.transAxes)
-    ax1.text(0.05, 0.05, 'R', color='white', fontsize=2.5*h_box, ha='left', va='bottom', transform=ax1.transAxes)
-    ax1.text(0.95, 0.05, 'L', color='white', fontsize=2.5*h_box, ha='right', va='bottom', transform=ax1.transAxes)
+    label1_text = ax1.text(0.05, 0.95,label1, color='white', fontsize=12*PLOT_SCALE, ha='left', va='top', transform=ax1.transAxes)
+    ax1.text(0.05, 0.05, 'R', color='white', fontsize=12*PLOT_SCALE, ha='left', va='bottom', transform=ax1.transAxes)
+    ax1.text(0.95, 0.05, 'L', color='white', fontsize=12*PLOT_SCALE, ha='right', va='bottom', transform=ax1.transAxes)
     und1 = ax1.imshow(anat[:, :, k0],cmap='gray',extent=fov_anat,zorder=1,vmin=min_anat,vmax=max_anat)
     ove_roi = ax4.imshow(roi_map[:, :, K0],cmap=cmap_roi,alpha=1,extent=fov_func,zorder=2,vmin=0.5,vmax=6.5)
     und4 = ax4.imshow(anat[:, :, k0],cmap='gray',extent=fov_anat,zorder=1,vmin=min_anat,vmax=max_anat)
@@ -922,7 +923,7 @@ def press_view_motion():
     motfig = Figure(figsize=(14, 7), facecolor='black')
     ax_mot = motfig.add_subplot(111)
     ax_mot.set_facecolor('black')
-    ax_mot.grid(True, which='both', linestyle='--', linewidth=0.5, color='gray')
+    ax_mot.grid(True, which='both', linestyle='--', linewidth=0.5*PLOT_SCALE, color='gray')
 
     #for spine in ax_mot.spines.values():
     #    spine.set_visible(False)
@@ -1140,7 +1141,7 @@ def scale_signal():
     # Place again the vlines in a sensible place
     vline1.set_xdata([0,0])
     vline2.set_xdata([t[1],t[1]])
-    ax3.text(0.05, 0.95,ax3_ylabel, color='white',transform=ax3.transAxes, fontsize=12,verticalalignment='top', horizontalalignment='left')
+    ax3.text(0.05, 0.95,ax3_ylabel, color='white',transform=ax3.transAxes, fontsize=12*PLOT_SCALE,verticalalignment='top', horizontalalignment='left')
     window.after(0, popup.destroy)
     bt_scale_signal.config(fg="red")
     bt_prepro_history.append(bt_scale_signal)
@@ -1257,7 +1258,7 @@ def on_move_time_set(ax):
     vline = ax.axvline(x=x_init, color='blue', linestyle='-')
 
     # Text to display the x value
-    text = ax.text(0.6, 0.8, f'time=--', transform=ax.transAxes, ha='left', va='top', color='white')
+    text = ax.text(0.6, 0.8, f'time=--', transform=ax.transAxes, ha='left', va='top', color='white',fontsize=12*PLOT_SCALE)
 
     def on_move_time(event):
         if event.inaxes == ax:
@@ -1278,7 +1279,12 @@ def only_keep_lines(ax,list_lines):
     for line in ax.get_lines():
         if line not in list_lines:
             line.remove()
-        
+
+
+
+
+
+
 def resetplot(axs,data,TR):
     global line_current,line_brain_ave,brain_ave,t,line_cvr_ref,text_coord
     global line_aif_ave
@@ -1287,10 +1293,10 @@ def resetplot(axs,data,TR):
     axs.cla()
 
     h_box = ax1.get_window_extent().transformed(fig.dpi_scale_trans.inverted()).height
-    axs.grid(True, which='both', linestyle='--', linewidth=0.5, color='gray')
-    axs.xaxis.set_tick_params(labelcolor='white',labelsize=2*h_box,color='none',pad=-15)
-    axs.yaxis.set_tick_params(labelcolor='white',labelsize=2*h_box,color='none',pad=-20)
-    text_coord = axs.text(0.6, 0.95, '', fontsize=2.5*h_box, color='white', ha='left', va='top', transform=axs.transAxes)
+    axs.grid(True, which='both', linestyle='--', linewidth=0.5*PLOT_SCALE, color='gray')
+    axs.xaxis.set_tick_params(labelcolor='white',labelsize=12*PLOT_SCALE,color='none',pad=-15)
+    axs.yaxis.set_tick_params(labelcolor='white',labelsize=12*PLOT_SCALE,color='none',pad=-20)
+    text_coord = axs.text(0.6, 0.95, '', fontsize=12*PLOT_SCALE, color='white', ha='left', va='top', transform=axs.transAxes)
     for spine in axs.spines.values():
         spine.set_visible(False)  # Completely hide the spines
     vline, text, cid = on_move_time_set(axs)
@@ -1301,7 +1307,7 @@ def resetplot(axs,data,TR):
     line_current, = axs.plot(t,data[I0,J0,K0,:],'w:',marker='.', markerfacecolor='none', markeredgecolor='none',zorder=500)
     brain_ave = np.ma.mean(data,axis=(0,1,2))
     np.savetxt(os.path.join(dir_perfmri,'brain_ave.1D'),np.array(brain_ave).transpose())
-    line_brain_ave, = axs.plot(t, brain_ave, color='#00FF00', linestyle='-', linewidth=8, alpha=0.5, zorder=600,marker='.', markerfacecolor='red', markeredgecolor='none')
+    line_brain_ave, = axs.plot(t, brain_ave, color='#00FF00', linestyle='-', linewidth=8*PLOT_SCALE, alpha=0.5, zorder=600,marker='.', markerfacecolor='red', markeredgecolor='none')
     
     
     # Re-display data
@@ -1322,7 +1328,7 @@ def resetplot(axs,data,TR):
         ijk_lines.append([key, l[0]])  # Append the key and plot object pair to the ijk_lines list
     
     aif_ave = mask_average(data,aif)    
-    line_aif_ave, = ax3.plot(t,aif_ave, color='#FF00FF', linestyle='-', linewidth=8, alpha=0.4, zorder=600)
+    line_aif_ave, = ax3.plot(t,aif_ave, color='#FF00FF', linestyle='-', linewidth=8*PLOT_SCALE, alpha=0.4, zorder=600)
     line_aif_ave.set_visible(chk_ave_aif_state.get())
     
     # Make 2 lines for trim and scaling
@@ -2100,10 +2106,10 @@ def show_map(axx,map_array,label,colorscale,vmin,vmax,anat_array):
     h_box = axx.get_window_extent().transformed(fig.dpi_scale_trans.inverted()).height
     
     # Image label
-    axx.text(0.05, 0.95,label,color='white', fontsize=3.5*h_box, ha='left', va='top', transform=axx.transAxes)
+    axx.text(0.05, 0.95,label,color='white', fontsize=12*PLOT_SCALE, ha='left', va='top', transform=axx.transAxes)
 
     # Metrics value in image
-    mapval = axx.text(0.05, 0.05,'--',color='white', fontsize=2.5*h_box, ha='left', va='top', transform=axx.transAxes)
+    mapval = axx.text(0.05, 0.05,'--',color='white', fontsize=12*PLOT_SCALE, ha='left', va='top', transform=axx.transAxes)
 
     # Set colorscale
     inset_pos = [0.97, 0.15, 0.03, 0.7]  # [left, bottom, width, height]
@@ -2115,8 +2121,7 @@ def show_map(axx,map_array,label,colorscale,vmin,vmax,anat_array):
     ove.cbar = cbar # store cbar as an attribute to ove
 
     # Fix the number of tick
-    tick_fs = 2.5  * h_box
-    cbar.ax.tick_params(labelsize=tick_fs, pad=2)
+    cbar.ax.tick_params(labelsize=12*PLOT_SCALE, pad=2)
 
     apply_cbar_format(cbar)
     
@@ -3368,7 +3373,7 @@ def press_define_windows(*args):
                     band = ax3.axvspan(
                         start_time,
                         start_time + window_width,
-                        color='pink', ec='pink', linewidth=3, alpha=0.3
+                        color='pink', ec='pink', linewidth=3*PLOT_SCALE, alpha=0.3
                     )
                     bands.append(band)
 
@@ -3388,7 +3393,7 @@ def press_define_windows(*args):
                     band = ax3.axvspan(
                         start_time,
                         start_time + bolus_width,
-                        color='pink', ec='pink', linewidth=3, alpha=0.3
+                        color='pink', ec='pink', linewidth=3*PLOT_SCALE, alpha=0.3
                     )
                     bands.append(band)
 
@@ -3762,33 +3767,6 @@ def apply_cbar_format(cbar):
     for label in cbar.ax.yaxis.get_ticklabels():
         label.set_color('white')
 
-def apply_cbar_format_new(cbar, grey='0.7', fontsize=13):
-
-    # --- FORCE white background (THIS is the key for inset_axes)
-    cbar.ax.patch.set_facecolor('white')
-    cbar.ax.patch.set_alpha(1.0)
-
-    # --- ticks + size
-    cbar.ax.tick_params(
-        axis='y',
-        colors=grey,
-        labelsize=fontsize
-    )
-
-    # --- tick labels: color + bold
-    for label in cbar.ax.get_yticklabels():
-        label.set_color(grey)
-        label.set_fontweight(700)
-
-    # --- colorbar frame
-    cbar.outline.set_edgecolor(grey)
-    cbar.outline.set_linewidth(1.0)
-
-    cbar.ax.yaxis.tick_left()
-
-
-
-
 def on_menu_selection4(choice):
     ove4.set_cmap(choice)
     apply_cbar_format(ove4.cbar)
@@ -4091,7 +4069,7 @@ def activate_draw_roi():
         if lasso is not None:
             lasso.disconnect_events()
             lasso = None
-        lasso = LassoSelector(ax4, onlasso, button=1,props=dict(color='red', linewidth=2, alpha=0.8))  # left button
+        lasso = LassoSelector(ax4, onlasso, button=1,props=dict(color='red', linewidth=2*PLOT_SCALE, alpha=0.8))  # left button
     else:
         # ---- CLICK MODE ON ----
         print("Switching to CLICK mode")
@@ -4365,7 +4343,9 @@ screen_width = window.winfo_screenwidth()
 screen_height = window.winfo_screenheight()
 win_geo = '%dx%d'%(screen_height*1.5,screen_height/1.3)
 # Adjust window accordingly and make title
+print(win_geo,"HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH")
 window.geometry(win_geo)
+window.geometry('2560x1460')
 window.title("PerfMRI")
 
 # Separate the window in 2 panes with UI on LEFT and plots/images on right
@@ -4390,7 +4370,6 @@ frame_ui_canvas.pack(fill=BOTH, expand=True)
 # # The actual frame with UI widgets
 frame_ui = Frame(frame_ui_canvas)
 frame_ui_canvas.create_window((0, 0), window=frame_ui, anchor="nw")
-
 
 # Update scrollregion when contents grow
 def on_configure(event):
@@ -4431,11 +4410,9 @@ frame_ui.bind("<Leave>", _unbind_from_mousewheel)
 
 
 
-
-
-
 nb_prepro = ttk.Notebook(frame_ui,style="TNotebook")
 nb_prepro.pack(side=TOP,anchor="w",fill='both', expand=True,padx=6)
+
 
 frame_preprocess = Frame(nb_prepro,pady=20)
 nb_prepro.add(frame_preprocess, text='Pre-processings')
@@ -4450,6 +4427,8 @@ frame_info.columnconfigure(0, weight=1)
 # Text widget
 info_txt = Text(frame_info, wrap="word", width=60, bg="black")
 info_txt.grid(row=0, column=0, sticky="nsew")
+
+
 
 # Configure tags 
 info_txt.tag_configure("info", font=("Helvetica", 14), foreground="white")
@@ -4580,7 +4559,7 @@ tree_roi.tag_configure('yellow_col', foreground='#b58900')
 
 # Make a frame for Segmentation
 frame_seg = Frame(nb_analysis,pady=20)
-nb_analysis.add(frame_seg, text='Segmentation')
+#nb_analysis.add(frame_seg, text='Segmentation')
 
 # Create the Treeview in your frame
 tree = ttk.Treeview(
@@ -5351,6 +5330,32 @@ chk_label_state.set(True) #set check state
 chk_label = Checkbutton(frame_chkbt, text='Label',command=view_label,var=chk_label_state)
 chk_label.grid(column=0, row=3,sticky=W,padx=(300,0),pady=(0,0),columnspan=2)
 
+
+
+def update_plot_scale():
+    global PLOT_SCALE
+    PLOT_SCALE = float(sb_fontsize.get())/100
+    line_brain_ave.set_linewidth(8 * PLOT_SCALE)
+    for ax in (ax1, ax3, ax4, ax5, ax6):
+        ax.tick_params(labelsize=10 * PLOT_SCALE)
+        ax.xaxis.label.set_fontsize(10 * PLOT_SCALE)
+        ax.yaxis.label.set_fontsize(10 * PLOT_SCALE)
+        for t in ax.texts:
+            t.set_fontsize(12 * PLOT_SCALE)
+    if "ove4" in globals():
+        for ove in (ove4, ove5, ove6):
+            ove.cbar.ax.tick_params(labelsize=10 * PLOT_SCALE)
+                                      
+    plt.draw()
+
+Label(frame_chkbt,text="Font").grid(column=0, row=1,sticky=W,padx=(430,0),pady=(0,0),columnspan=2)
+sb_fontsize = Spinbox(frame_chkbt, from_=0, to=200,textvariable = 100, increment=10,width=3,command=update_plot_scale)
+sb_fontsize.grid(column = 0, row=1,sticky=W,padx=(460,0),pady=(0,0),columnspan=2)
+sb_fontsize.delete(0, "end")
+sb_fontsize.insert(0, "100")
+
+
+
 lb_regression = Label(frame_cvr, text="Linear Regression",justify='left')
 lb_regression.grid(row=0,column=0,sticky=W,padx=(10,40))
 
@@ -5509,10 +5514,10 @@ for ax in [ax1, ax5 ,ax6 ,ax4]:
     ax.set_xticks([])
     ax.set_yticks([])
 
-ax3.grid(True, which='both', linestyle='--', linewidth=0.5, color='gray')
-ax3.xaxis.set_tick_params(labelcolor='white',color='none',pad=-15)
-ax3.yaxis.set_tick_params(labelcolor='white',color='none',pad=-20)
-text_coord = ax3.text(0.6, 0.95, '', fontsize=10, color='white', ha='left', va='top', transform=ax3.transAxes)
+ax3.grid(True, which='both', linestyle='--', linewidth=0.5*PLOT_SCALE, color='gray')
+ax3.xaxis.set_tick_params(labelcolor='white',color='none',pad=-15,labelsize=12*PLOT_SCALE)
+ax3.yaxis.set_tick_params(labelcolor='white',color='none',pad=-20,labelsize=12*PLOT_SCALE)
+text_coord = ax3.text(0.6, 0.95, '', fontsize=12*PLOT_SCALE, color='white', ha='left', va='top', transform=ax3.transAxes)
 for spine in ax3.spines.values():
     spine.set_visible(False)  # Completely hide the spines
 
@@ -5700,6 +5705,11 @@ for cmap_name, cmap_object in colormaps.items():
 
 interface_vars = [key for key in globals() if not key.startswith("__")]
 
+
+print("OOOOOOOOOOOOOOOOOOOOOOOO",window.winfo_fpixels('1i'))
+print("YYYYYYYYYYYYYYYYYYYYYYYY",fig.dpi)
+
+window.tk.call('tk', 'scaling', 2.0)
 window.mainloop()
 
 
