@@ -1321,7 +1321,7 @@ def resetplot(axs,data,TR):
     for i, j, k in zip(ii, jj, kk):
         # Plot the time series of data at coordinate (i, j, k)
         key = f"{i}_{j}_{k}"
-        l = ax3.plot(t,data[i, j, k, :],picker=True, pickradius=3)
+        l = ax3.plot(t,data[i, j, k, :],picker=True, pickradius=3,linewidth=SCALE_GLOBAL)
         ijk_lines.append([key, l[0]])  # Append the key and plot object pair to the ijk_lines list
     
     aif_ave = mask_average(data,aif)    
@@ -1329,7 +1329,7 @@ def resetplot(axs,data,TR):
     line_aif_ave.set_visible(chk_ave_aif_state.get())
     
     # Make 2 lines for trim and scaling
-    vline1 = ax3.axvline(0, color='green', linestyle='-',zorder=700)
+    vline1 = ax3.axvline(0, color='green', linestyle='-',zorder=700,linewidth=SCALE_GLOBAL)
     vline2 = ax3.axvline(10, color='green', linestyle='-',zorder=701)
 
     # Reference for fMRI
@@ -5495,7 +5495,7 @@ def size_global():
     line_aif_ave.set_linewidth(8 * SCALE_GLOBAL)
     for line in ax3.lines:
         if line not in (line_brain_ave,line_aif_ave):
-            line.set_linewidth(3*SCALE_GLOBAL)
+            line.set_linewidth(SCALE_GLOBAL)
     for ax in (ax1, ax3, ax4, ax5, ax6):
         ax.tick_params(labelsize=10 * SCALE_GLOBAL)
         ax.xaxis.label.set_fontsize(10 * SCALE_GLOBAL)
