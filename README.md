@@ -2,8 +2,8 @@
 Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebrovascular reactivity) datasets.
 
 ## DSC analysis: demo
-<<p align="center">
-  <a href="docs/demo_dsc_analysis.mp4">
+<p align="center">
+  <a href="https://youtu.be/BdniA_6K5LI">
     <img src="docs/gui.png" width="700">
   </a>
 </p>
