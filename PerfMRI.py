@@ -1975,7 +1975,6 @@ def calc_relperf_modfree():
     # Perform the linear regression for all voxels
     model = LinearRegression(fit_intercept=False, n_jobs=6)
     model.fit(X,Y)  
-    print("bcoef_shape",model.coef_[:, 0].shape) 
     # BCOEF
     K1 = np.ma.masked_all(func_mask.shape)
     K2 = np.ma.masked_all(func_mask.shape)
@@ -1987,10 +1986,7 @@ def calc_relperf_modfree():
     conc_k2 = K2[..., None] * X[:,1]
     conc_fit  = conc_k1 + conc_k2
     conc_corr = data1 - conc_k2
-
-    # save2nifti(conc_k1,aff_func_orig,form_code_func_orig,dir_relative_modfree,'conc_k1.nii.gz')
-    # save2nifti(conc_k2,aff_func_orig,form_code_func_orig,dir_relative_modfree,'conc_k2.nii.gz')
-    save2nifti(conc_fit,aff_func_orig,form_code_func_orig,dir_relative_modfree,'conc_fit.nii.gz')
+    auc_box = trapz(conc_corr, dx=TR, axis=3)
 
 
     # Save files
@@ -2003,11 +1999,11 @@ def calc_relperf_modfree():
     save2nifti(fwhm,aff_func_orig,form_code_func_orig,dir_relative_modfree,'fwhm.nii.gz')
     save2nifti(bat,aff_func_orig,form_code_func_orig,dir_relative_modfree,'bat.nii.gz')
     save2nifti(auc,aff_func_orig,form_code_func_orig,dir_relative_modfree,'auc.nii.gz')
+    save2nifti(auc_box,aff_func_orig,form_code_func_orig,dir_relative_modfree,'auc_boxerman.nii.gz')
     save2nifti(cmax,aff_func_orig,form_code_func_orig,dir_relative_modfree,'cmax.nii.gz')
     save2nifti(SR, aff_func_orig,form_code_func_orig, dir_relative_modfree, 'sr.nii.gz')
     save2nifti(PSR, aff_func_orig,form_code_func_orig, dir_relative_modfree, 'psr.nii.gz')
     save2nifti(K2,aff_func_orig,form_code_func_orig,dir_relative_modfree,'k2.nii.gz')
-    save2nifti(K1,aff_func_orig,form_code_func_orig,dir_relative_modfree,'k1.nii.gz')
     save2nifti(conc_corr,aff_func_orig,form_code_func_orig,dir_relative_modfree,'conc_k2_corr.nii.gz')
 
 
@@ -2043,6 +2039,13 @@ def view_relperf():
 
     plt.draw()
 
+def press_set_relperf():
+    vline1.set_xdata([t[-3],t[-3]])
+    vline2.set_xdata([t[-1],t[-1]])
+    plt.draw()
+    window.update_idletasks() 
+    messagebox.askokcancel("Post Baseline", "Mark baseline post bolus with vertical green lines before pressing calc\n" \
+                        "This will be used to calculate the Signal Recovery (SR)")
 
 def press_calc_relperf():
     if relperf_method.get() == 'GamVar-afni':
@@ -2067,6 +2070,12 @@ def press_switch_data():
         print(files)
         orig = max(files)
         _, data1, label1 = load_nifti(dir_preprocess,orig)
+        data1 = mask_4d_from_3d(func_mask==0,data1)
+        resetplot(ax3,data1,TR)
+        label1_text.set_text(label1)
+
+    elif switch_data_method.get() == 'Boxerman corr':
+        _, data1, label1 = load_nifti(dir_relative_modfree,"conc_k2_corr.nii.gz")
         data1 = mask_4d_from_3d(func_mask==0,data1)
         resetplot(ax3,data1,TR)
         label1_text.set_text(label1)
@@ -2145,11 +2154,13 @@ def calc_aif():
         dir_relative = dir_relative_gamvar
     elif switch_data_method.get() == 'Original':
         dir_relative = dir_relative_modfree
-    else:
-        print("This method is not available yet")
+        _,auc,_ = load_nifti(dir_relative,'auc.nii.gz')
+    elif switch_data_method.get() == 'Boxerman corr':
+        dir_relative = dir_relative_modfree
+        _,auc,_ = load_nifti(dir_relative,'auc_boxerman.nii.gz')
+
 
     _,cmax,_ = load_nifti(dir_relative,'cmax.nii.gz')
-    _,auc,_ = load_nifti(dir_relative,'auc.nii.gz')
     _,dbase,_ = load_nifti(dir_relative_modfree,'sr.nii.gz')
     dbase = np.abs(dbase)
     _,sms,_ = load_nifti(dir_relative,'sms.nii.gz')
@@ -2563,22 +2574,25 @@ def calc_quantperf_exp():
 
 def calc_quantperf_SVD():
 
-    if relperf_method.get() == 'GamVar-afni':
-        dir_relative = dir_relative_gamvar
-    elif relperf_method.get() == 'Model Free':
-        dir_relative = dir_relative_modfree
+
     
     os.makedirs(dir_quantitative_decon, exist_ok=True)
 
+    
     aif_ave = mask_average(data1,aif)
     auc_aif = trapz(aif_ave)
-    print("YYYYYYYYYYYYYYYYYYYYYYYVOF", auc_aif)
 
-
-    _,auc,_ = load_nifti(dir_relative,'auc.nii.gz')
-    #auc_max = np.max(auc)
+    if relperf_method.get() == 'GamVar-afni':
+        dir_relative = dir_relative_gamvar
+        _,auc,_ = load_nifti(dir_relative,'auc.nii.gz')
+    elif relperf_method.get() == 'Model Free':
+        dir_relative = dir_relative_modfree
+        _,auc,_ = load_nifti(dir_relative,'auc.nii.gz')
+    elif relperf_method.get() == 'Boxerman corr':
+        dir_relative = dir_relative_modfree
+        _,auc,_ = load_nifti(dir_relative,'auc_boxerman.nii.gz')
+    
     _, auc_max = vminvmax_percentile(auc,0.1,0.1)
-    print("99percentile", auc_max)
     aif_scaled = auc_max*aif_ave / auc_aif
     np.savetxt(os.path.join(dir_quantitative_decon,'scaled_AIF.1D'),np.array(aif_scaled).transpose())
 
@@ -5192,11 +5206,14 @@ relperf_method.set('Model Free') # set the default option
 protocol_menu.grid(row=0, column=1, sticky=W, columnspan=2, padx=(0,0))
 protocol_menu.config(width=menu_large)
 
+bt_set_relperf = Button(frame_perf, text="set",command=press_set_relperf,width=bt_small,font=bt_font,activeforeground="red")
+bt_set_relperf.grid(column=3, row=0,sticky=W, padx=(0,0))
+
 bt_calc_relperf = Button(frame_perf, text="calc",command=press_calc_relperf,width=bt_small,font=bt_font,activeforeground="red")
-bt_calc_relperf.grid(column=3, row=0,sticky=W, padx=(0,0))
+bt_calc_relperf.grid(column=4, row=0,sticky=W, padx=(0,0))
 
 bt_view_relperf = Button(frame_perf, text="view",command=view_relperf,width=bt_small,font=bt_font,fg="black")
-bt_view_relperf.grid(column=4, row=0,sticky=W, padx=(0,0))
+bt_view_relperf.grid(column=5, row=0,sticky=W, padx=(0,0))
 
 # This was the line to correct the time map with time slices instead of the slice time correction on the raw dataset
 # lb_corr_time = Label(frame_perf, text="Correct time maps",justify='left')
@@ -5232,7 +5249,7 @@ lb_switch_data = Label(frame_perf, text= "Using dataset",justify='left')
 lb_switch_data.grid(row=4,column=0,sticky=W,padx=(10,40))
 
 switch_data_method = StringVar()
-choices = ['Original','GamVar-afni']
+choices = ['Original','GamVar-afni','Boxerman corr']
 protocol_menu = OptionMenu(frame_perf, switch_data_method, *choices)
 switch_data_method.set('Original') # set the default option
 protocol_menu.grid(row=4, column=1, sticky=W, columnspan=2, padx=(0,0))
@@ -5470,8 +5487,6 @@ bnt_view_quantperf.grid(column=5, row=18,sticky=W)
 
 # In Settings
 # The Functions and spinboxes to ajust the size of the font, label, linewidth
-SCALE_GLOBAL= 0.6
-SCALE_LABEL = 0.6
 
 def size_global():
     global SCALE_GLOBAL
@@ -5487,7 +5502,8 @@ def size_global():
         ax.yaxis.label.set_fontsize(10 * SCALE_GLOBAL)
     if "ove4" in globals():
         for ove in (ove4, ove5, ove6):
-            ove.cbar.ax.tick_params(labelsize=10 * SCALE_GLOBAL)                                
+            ove.cbar.ax.tick_params(labelsize=10 * SCALE_GLOBAL)  
+                            
     plt.draw()
 
 def size_labels():
@@ -5496,19 +5512,25 @@ def size_labels():
     for ax in (ax1, ax3, ax4, ax5, ax6):
         for t in ax.texts:
             t.set_fontsize(12 * SCALE_LABEL)
+    slice_n.valtext.set_fontsize(12*SCALE_LABEL)      
     plt.draw()
+
+# Calculate the scale for line width, label, axis and font
+window.update_idletasks()
+SCALE_GLOBAL = (1/3)*frame_fig_container.winfo_width() / frame_ui.winfo_width()
+SCALE_LABEL = SCALE_GLOBAL
 
 Label(frame_settings,text="Global").grid(column=0, row=0,sticky=W,padx=(10,0))
 sb_global = Spinbox(frame_settings, from_=0, to=300, increment=10,width=3,command=size_global)
 sb_global.grid(column = 1, row=0,sticky=W)
 sb_global.delete(0, "end")
-sb_global.insert(0, "60")
+sb_global.insert(0, int(SCALE_GLOBAL*100))
 
 Label(frame_settings,text="Labels").grid(column=0, row=1,sticky=W,padx=(10,0))
 sb_labels = Spinbox(frame_settings, from_=0, to=300, increment=10,width=3,command=size_labels)
 sb_labels.grid(column = 1, row=1,sticky=W)
 sb_labels.delete(0, "end")
-sb_labels.insert(0, "60")
+sb_labels.insert(0, int(SCALE_LABEL*100))
 
 # Make matplotlib figure called fig with 3x2 axes.
 # ====================================================================================================
