@@ -2719,6 +2719,8 @@ def press_calc_quantperf():
         popup_wait()
         threading.Thread(target=calc_quantperf_SVD, daemon=True).start()
 
+
+### TAU or RT Analysis
 def press_calc_tau_2d():
     global data5,ove5,und5,mapval5
     # Calculate the TAU map
@@ -2748,7 +2750,7 @@ def press_calc_tau_2d():
     mask_k_func[:,:,k_func] = func_mask[:,:,k_func]
     _, _, _, _, tau[:,:,:] = cvr_regress_3d(data1,mask_k_func,ref_multi_taus.transpose(),TR)
     tau = tau * step
-    data5,ove5,und5,mapval5 = show_map(ax5,tau,"TAU",'viridis',5,5,anat)
+    data5,ove5,und5,mapval5 = show_map(ax5,tau,"RT",'viridis',5,5,anat)
 
 
 def press_calc_tau_3d():
@@ -2756,7 +2758,10 @@ def press_calc_tau_3d():
     threading.Thread(target=calc_tau_3d, daemon=True).start()
 
 def calc_tau_3d():
-    global data5,ove5,und5,mapval5 
+    global data4,ove4,und4,mapval4
+    global data5,ove5,und5,mapval5
+    global data6,ove6,und6,mapval6
+
     # Calculate the TAU map using exponential_convolution method
     tau_minmax = box_tau_minmax.get("1.0", "end").strip()  # Strip removes extra newlines
     # Parse the text and assign to variables
@@ -2775,19 +2780,29 @@ def calc_tau_3d():
         ref_multi_taus = exponential_convolution(cvr_ref_sh,TR,0,end-start,step)
     else:
         ref_multi_taus = exponential_convolution(cvr_ref, TR, start,end,step)
-
-    tau = multi_regress(data1, ref_multi_taus, step)
-    data5,ove5,und5,mapval5 = show_map(ax5,tau,"TAU",'viridis',5,5,anat)
-    window.after(0, popup.destroy)
-    save2nifti(tau,aff_func_orig,form_code_func_orig,dir_cvr,'tau.nii.gz')
     np.savetxt(os.path.join(dir_cvr,'ref_convolved.1D'),ref_multi_taus.transpose())
+    bcoef,rcoef,pbold,cnr,ind = cvr_regress_3d(data1,func_mask,ref_multi_taus.transpose(),TR)
+    tau = ind*step
+    data4,ove4,und4,mapval4 = show_map(ax4,pbold,"BOLD_RT",fMRI_colors,-9999,5,anat)
+    data5,ove5,und5,mapval5 = show_map(ax5,tau,"RT",'viridis',5,5,anat)
+    data6,ove6,und6,mapval6 = show_map(ax6,rcoef,"RCOEF_RT",CoolHot_colors,-9999,0.001,anat)
+
+    window.after(0, popup.destroy)
+    
+    os.makedirs(dir_cvr_rt,exist_ok=True)
+    save2nifti(bcoef,aff_func_orig,form_code_func_orig,dir_cvr_rt,'cvr_rt.nii.gz')
+    save2nifti(rcoef,aff_func_orig,form_code_func_orig,dir_cvr_rt,'rcoef_rt.nii.gz')
+    save2nifti(pbold,aff_func_orig,form_code_func_orig,dir_cvr_rt,'bold_rt.nii.gz')
+    save2nifti(cnr,aff_func_orig,form_code_func_orig,dir_cvr_rt,'cnr_rt.nii.gz')
+    save2nifti(tau,aff_func_orig,form_code_func_orig,dir_cvr_rt,'rt.nii.gz')
     
 
 def press_view_tau():
     global data5,ove5,und5,mapval5
-    _,tau,_ = load_nifti(dir_cvr,'tau.nii.gz')
-    data5,ove5,und5,mapval5 = show_map(ax5,tau,"TAU",'viridis',5,5,anat)
+    _,tau,_ = load_nifti(dir_cvr,'rt.nii.gz')
+    data5,ove5,und5,mapval5 = show_map(ax5,tau,"RT",'viridis',5,5,anat)
 
+### LAG Analysis
 def press_calc_lag_2d():
     global data5,ove5,und5,mapval5 
     # Calculate the SHIFT map
@@ -2832,17 +2847,17 @@ def calc_lag_3d():
     #lag = multi_regress(data1,ref_multi_shifts,step)
     bcoef,rcoef,pbold,cnr,ind = cvr_regress_3d(data1,func_mask,ref_multi_shifts.transpose(),TR)
     lag = ind*step
-    data4,ove4,und4,mapval4 = show_map(ax4,pbold,"BOLD_LC",fMRI_colors,-9999,5,anat)
+    data4,ove4,und4,mapval4 = show_map(ax4,pbold,"BOLD_LAG",fMRI_colors,-9999,5,anat)
     data5,ove5,und5,mapval5 = show_map(ax5,lag,"LAG",'viridis',5,5,anat)
-    data6,ove6,und6,mapval6 = show_map(ax6,rcoef,"RCOEF_LC",CoolHot_colors,-9999,0.001,anat)
+    data6,ove6,und6,mapval6 = show_map(ax6,rcoef,"RCOEF_LAG",CoolHot_colors,-9999,0.001,anat)
 
     window.after(0, popup.destroy)
     
     os.makedirs(dir_cvr_lag,exist_ok=True)
-    save2nifti(bcoef,aff_func_orig,form_code_func_orig,dir_cvr_lag,'cvr_lc.nii.gz')
-    save2nifti(rcoef,aff_func_orig,form_code_func_orig,dir_cvr_lag,'rcoef_lc.nii.gz')
-    save2nifti(pbold,aff_func_orig,form_code_func_orig,dir_cvr_lag,'bold_lc.nii.gz')
-    save2nifti(cnr,aff_func_orig,form_code_func_orig,dir_cvr_lag,'cnr_lc.nii.gz')
+    save2nifti(bcoef,aff_func_orig,form_code_func_orig,dir_cvr_lag,'cvr_lag.nii.gz')
+    save2nifti(rcoef,aff_func_orig,form_code_func_orig,dir_cvr_lag,'rcoef_lag.nii.gz')
+    save2nifti(pbold,aff_func_orig,form_code_func_orig,dir_cvr_lag,'bold_lag.nii.gz')
+    save2nifti(cnr,aff_func_orig,form_code_func_orig,dir_cvr_lag,'cnr_lag.nii.gz')
     save2nifti(lag,aff_func_orig,form_code_func_orig,dir_cvr_lag,'lag.nii.gz')
     
 def press_view_lag():
