@@ -2327,11 +2327,11 @@ def calc_aif_cvr_method2():
     Nvox=txt2_nvox.get("1.0",END)
     Nvox=np.int64(Nvox.strip())
 
-    _,bold,_ = load_nifti(dir_cvr,'bold.nii.gz')
+    _,bold,_ = load_nifti(dir_cvr_lag,'bold_lag.nii.gz')
     bold = np.ma.masked_where(func_mask==0,bold)
-    _,corr,_ = load_nifti(dir_cvr,'rcoef.nii.gz')
+    _,corr,_ = load_nifti(dir_cvr_lag,'rcoef_lag.nii.gz')
     corr = np.ma.masked_where(func_mask==0,corr)
-    _,lag,_ = load_nifti(dir_cvr,'lag.nii.gz')
+    _,lag,_ = load_nifti(dir_cvr_lag,'lag.nii.gz')
     lag = np.ma.masked_where(func_mask==0,lag)
 
     # Taking the inverse function, so I can use mask_by_percent whether inv_lag is the
@@ -2353,7 +2353,6 @@ def calc_aif_cvr_method2():
     sm_lag = np.ma.masked_where(lag==0,sm_lag / sm_mask)
     rev_sm_lag = np.max(sm_lag)-sm_lag
     
-    save2nifti(rev_sm_lag,aff_func_orig,form_code_func_orig,dir_cvr,'rev_sm_lag.nii.gz')
     
     opts = read_advanced_options()
     params = opts['method2_param_order']
@@ -2388,11 +2387,11 @@ def calc_aif_cvr_method1():
     Nvox=txt2_nvox.get("1.0",END)
     Nvox=np.int64(Nvox.strip())
 
-    _,bold,_ = load_nifti(dir_cvr,'bold.nii.gz')
+    _,bold,_ = load_nifti(dir_cvr_lag,'bold_lag.nii.gz')
     bold = np.ma.masked_where(func_mask==0,bold)
-    _,corr,_ = load_nifti(dir_cvr,'rcoef.nii.gz')
+    _,corr,_ = load_nifti(dir_cvr_lag,'rcoef_lag.nii.gz')
     corr = np.ma.masked_where(func_mask==0,corr)
-    _,lag,_ = load_nifti(dir_cvr,'lag.nii.gz')
+    _,lag,_ = load_nifti(dir_cvr_lag,'lag.nii.gz')
     lag = np.ma.masked_where(func_mask==0,lag)
     
     
@@ -2646,10 +2645,7 @@ def calc_quantcvr():
 
     data1_pos = data1 * sign[..., np.newaxis]       # Invert data based on sign
     r2_star = np.ma.log(data1_pos/100 + 1) # Convert to concentration
-    
-    save2nifti(r2_star,aff_func_orig,form_code_func_orig,dir_cvr_svd,'r2_star0.nii.gz')
     r2_star = np.where(data1_pos >= 0, r2_star, 0)
-    save2nifti(r2_star,aff_func_orig,form_code_func_orig,dir_cvr_svd,'r2_star.nii.gz')
 
     auc = trapz(r2_star, axis=3)
     save2nifti(auc,aff_func_orig,form_code_func_orig,dir_cvr_svd,'auc.nii.gz')
@@ -2958,13 +2954,13 @@ def multi_regress(data1, aifconvs, dmtt):
 def create_block_circulant_matrix(aif):
     """Create a block-circulant matrix (for oSVD)."""
     H = circulant(aif)    
-    np.savetxt(os.path.join(dir_quantitative_decon,'H_circulant.1D'),np.array(H))    
+    #np.savetxt(os.path.join(dir_quantitative_decon,'H_circulant.1D'),np.array(H))    
     return H
 
 def create_toeplitz_matrix(aif):
     """Create a standard convolution (Toeplitz) matrix (for SVD)."""
     H = toeplitz(aif, np.zeros(len(aif)))
-    np.savetxt(os.path.join(dir_quantitative_decon,'H_standard.1D'),np.array(H))    
+    #np.savetxt(os.path.join(dir_quantitative_decon,'H_standard.1D'),np.array(H))    
     return H
 
 # --- Precompute inverse H using SVD ---
