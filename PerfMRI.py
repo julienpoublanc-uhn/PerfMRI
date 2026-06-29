@@ -4267,7 +4267,7 @@ def set_advanced_options():
         file.write("#========= CVR AIF section parameters ==========\n")
         file.write("aif_cvr_method = 1 # Method can only be 1 or 2\n")
         file.write("method1_lag_thr = 0.6 # Include voxels whose lag < method1_lag_thr\n")
-        file.write("method2_param_order = r lag bold # Metrics order of p-tile thresholding algorithm \n")
+        file.write("method2_param_order = corr lag bold # Metrics order of p-tile thresholding algorithm \n")
         file.write("\n")
         file.write("#========= CVR regression otions ==========\n")
         file.write("pol_deg = 1 #  Num. of polynomial to remove. If 0 only baseline will be remove. If pol_deg=2 baseline, t^1 and t^2 wil be remove\n")
