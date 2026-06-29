@@ -1,9 +1,14 @@
 # PerfMRI GUI
 Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebrovascular reactivity) datasets.
 
+## GUI
+<p align="center">
+  <img src="docs/pipeline.png" width="700">
+</p>
+
 ## Demo Video
 ▶ **[DSC Analysis](https://youtu.be/BdniA_6K5LI)**
-
+▶ **[CVR Analysis](https://youtu.be/fCOuqCIxreQ)**
 
 ## Pipeline
 <p align="center">
@@ -27,6 +32,7 @@ Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebro
 - Automated AIF detection based on relative perfusion metrics
 - Quantitative perfusion using SVD, oSVD, or model-based residue function (exponential)
 - **rCBV, rCBF, MTT, Tmax** calculation
+- Boxerman leackage correction
 
 ### Breath-Hold and CVR
 - Input stimulus based on ON/OFF timing from a user-provided stimulus file:
@@ -34,7 +40,7 @@ Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebro
   - Two-column stimulus file (time, value)
 - Fast linear regression of BOLD signal against the stimulus
 - Stimulus can be shifted left or right, with BOLD maps auto-recalculated to visualize the effect of lag
-- Magnitude, partial correlation, **CNR** metrics
+- Magnitude, partial correlation, **CNR** metrics (corrected for lag or response time)
 - **Lag** and **Response Time** metrics
 
 ### ROI 
