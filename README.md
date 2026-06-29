@@ -3,11 +3,11 @@ Program to analyze MRI **DSC** perfusion, BOLD breath-hold, and **CVR** (cerebro
 
 ## GUI
 <p align="center">
-  <img src="docs/pipeline.png" width="700">
+  <img src="docs/gui.png" width="700">
 </p>
 
 ## Demo Video
-▶ **[DSC Analysis](https://youtu.be/BdniA_6K5LI)**
+▶ **[DSC Analysis](https://youtu.be/BdniA_6K5LI)**<br>
 ▶ **[CVR Analysis](https://youtu.be/fCOuqCIxreQ)**
 
 ## Pipeline
